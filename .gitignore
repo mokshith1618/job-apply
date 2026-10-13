@@ -1,0 +1,13 @@
+# Personal data: keep out of git and GitHub
+profile.yaml
+answers.yaml
+*.xlsx
+*.pdf
+backups/
+pending_rows.json
+browser-profile/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
