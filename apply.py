@@ -1,9 +1,10 @@
 """Job Apply Helper entry point.
 
-    python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet]
+    python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
 
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
 Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
+Milestone 2: Greenhouse forms are filled from profile.yaml and answers.yaml before the pause.
 This script never submits anything. I submit the application myself.
 """
 from __future__ import annotations
@@ -18,11 +19,16 @@ import yaml
 import ats
 import sheet_tracker
 import tracker
+from ats import greenhouse
 from sheet_tracker import SheetMismatch, SheetUnavailable
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_TRACKER = HERE / "Job Application Tracker.xlsx"
 DEFAULT_CONFIG = HERE / "config.yaml"
+DEFAULT_PROFILE = HERE / "profile.yaml"
+DEFAULT_ANSWERS = HERE / "answers.yaml"
+BROWSER_PROFILE = HERE / "browser-profile"
+FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
 
 
@@ -150,12 +156,36 @@ def open_sheet(config: dict, tracker_path: Path, no_sheet: bool, ws=None) -> She
     return sheet
 
 
-def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None = None, sheet_ws=None) -> int:
-    parser = argparse.ArgumentParser(description="Read a job, wait for me to apply, then log it.")
+def open_form(filler, url: str, args, input_fn):
+    """Open and fill the form; returns the browser session (or None). Never submits.
+
+    Any failure (Chrome missing, page changed) is printed, and I fill the form by hand.
+    """
+    if filler is None:
+        return None
+    if not args.profile.exists():
+        print(f"{args.profile.name} not found; not filling the form.")
+        return None
+    try:
+        session = filler(url, profile_path=args.profile, answers_path=args.answers, source=args.source,
+                         input_fn=input_fn, user_data_dir=BROWSER_PROFILE)
+    except Exception as exc:  # noqa: BLE001 - the tracker flow carries on without the filler
+        print(f"Could not fill the form ({type(exc).__name__}: {exc}). Fill it by hand.")
+        return None
+    print(session.report.summary())
+    return session
+
+
+def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None = None, sheet_ws=None,
+         fill=None) -> int:
+    parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
     parser.add_argument("url")
     parser.add_argument("--source", choices=["LinkedIn", "Tsenta", "Other"], default="Other")
     parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
     parser.add_argument("--no-sheet", action="store_true", help="Excel only; skip the Google Sheet")
+    parser.add_argument("--no-fill", action="store_true", help="don't open or fill the form")
+    parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
+    parser.add_argument("--answers", type=Path, default=DEFAULT_ANSWERS)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args(argv)
     today = today or date.today()
@@ -211,13 +241,18 @@ def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None 
     )
     print(f"\n  Company:  {row.company}\n  Position: {row.position}\n  Posted:   {row.posted}\n  URL:      {row.url}\n")
 
-    while True:
-        answer = input_fn(PAUSE_PROMPT).strip().lower()
-        if answer == "s":
-            print("Skipped. Tracker not changed.")
-            return 0
-        if answer == "":
-            break
+    session = None if args.no_fill else open_form(fill or FILLERS.get(system), url, args, input_fn)
+    try:
+        while True:
+            answer = input_fn(PAUSE_PROMPT).strip().lower()
+            if answer == "s":
+                print("Skipped. Tracker not changed.")
+                return 0
+            if answer == "":
+                break
+    finally:
+        if session is not None:
+            session.close()
 
     sheet.write(row)
     r = write_row(tracker_path, row, input_fn)

@@ -1,0 +1,138 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Job Application for Software Engineer at Acme</title>
+<!-- A small copy of the job-boards.greenhouse.io form structure (confirmed 2026-10-14):
+     ids equal API field names, labels use label[for], dropdowns are react-select
+     (input[role=combobox] in .select-shell, options are .select__option).
+     Any submit attempt sets window.submitted = true. -->
+<style>.select__menu{border:1px solid #888}.select__option{padding:2px}</style>
+</head>
+<body>
+<form id="application-form" onsubmit="window.submitted = true; event.preventDefault();">
+  <label for="first_name">First Name<span>*</span></label>
+  <input type="text" id="first_name" aria-required="true">
+  <label for="last_name">Last Name<span>*</span></label>
+  <input type="text" id="last_name" aria-required="true">
+  <label for="email">Email<span>*</span></label>
+  <input type="text" id="email" aria-required="true">
+
+  <label for="country">Country<span>*</span></label>
+  <div class="select-shell" data-options='["Canada +1","United Kingdom +44","United States +1"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="country" role="combobox" aria-required="true">
+    </div></div></div>
+  </div>
+  <label for="phone">Phone<span>*</span></label>
+  <input type="tel" id="phone" aria-required="true">
+
+  <label for="candidate-location">Location (City)<span>*</span></label>
+  <div class="select-shell" data-async='["Springfield, Oregon, United States","Springfield, Illinois, United States"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="candidate-location" role="combobox" aria-required="true">
+    </div></div></div>
+  </div>
+  <button type="button">Locate me</button>
+
+  <label for="resume">Resume/CV<span>*</span></label>
+  <input type="file" id="resume" style="display:none">
+  <button type="button">Attach</button>
+
+  <label for="question_101">LinkedIn Profile</label>
+  <input type="text" id="question_101">
+
+  <label for="question_102">Are you legally authorized to work in the United States?<span>*</span></label>
+  <div class="select-shell" data-options='["Yes","No"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="question_102" role="combobox" aria-required="true">
+    </div></div></div>
+  </div>
+
+  <label for="question_103">Will you now or in the future require visa sponsorship?<span>*</span></label>
+  <div class="select-shell" data-options='["Yes","No"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="question_103" role="combobox" aria-required="true">
+    </div></div></div>
+  </div>
+
+  <label for="question_104">Why do you want to join Acme?<span>*</span></label>
+  <textarea id="question_104" aria-required="true"></textarea>
+
+  <label for="question_105">How did you connect with us?<span>*</span></label>
+  <div class="select-shell" data-options='["Career fair","Apply through a partner","Other"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="question_105" role="combobox" aria-required="true">
+    </div></div></div>
+  </div>
+
+  <label for="question_106">Pronouns</label>
+  <div class="select-shell" data-options='["she/her","he/him","they/them"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="question_106" role="combobox" aria-required="false">
+    </div></div></div>
+  </div>
+
+  <label for="start-year--0">Start date year<span>*</span></label>
+  <input type="text" id="start-year--0" aria-required="true">
+
+  <label for="gender">Gender</label>
+  <div class="select-shell" data-options='["Decline To Self Identify","Female","Male"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="gender" role="combobox" aria-required="false">
+    </div></div></div>
+  </div>
+
+  <label for="veteran_status">Veteran Status</label>
+  <div class="select-shell" data-options='["I don&#39;t wish to answer","I am not a protected veteran"]'>
+    <div class="select__control"><div class="select__value-container"><div class="select__input-container">
+      <input type="text" id="veteran_status" role="combobox" aria-required="false">
+    </div></div></div>
+  </div>
+
+  <button type="submit" onclick="window.submitted = true;">Submit application</button>
+</form>
+
+<script>
+window.submitted = false;
+// A tiny stand-in for react-select: click opens the menu, typing filters it,
+// clicking an option sets .select__single-value, Escape closes the menu.
+document.querySelectorAll('.select-shell').forEach(shell => {
+  const input = shell.querySelector('input');
+  const isAsync = shell.hasAttribute('data-async');
+  const all = JSON.parse(shell.getAttribute(isAsync ? 'data-async' : 'data-options'));
+  const multi = shell.hasAttribute('data-multi');
+  let menu = null;
+  const close = () => { if (menu) { menu.remove(); menu = null; } };
+  const render = () => {
+    close();
+    const q = input.value.toLowerCase();
+    if (isAsync && !q) return;
+    menu = document.createElement('div');
+    menu.className = 'select__menu';
+    all.filter(o => o.toLowerCase().includes(q)).forEach(o => {
+      const opt = document.createElement('div');
+      opt.className = 'select__option';
+      opt.setAttribute('role', 'option');
+      opt.textContent = o;
+      opt.addEventListener('click', () => {
+        const old = shell.querySelector('.select__single-value');
+        if (old && !multi) old.remove();
+        const v = document.createElement('div');
+        v.className = multi ? 'select__multi-value' : 'select__single-value';
+        v.textContent = o;
+        shell.querySelector('.select__value-container').prepend(v);
+        input.value = '';
+        close();
+      });
+      menu.appendChild(opt);
+    });
+    shell.appendChild(menu);
+  };
+  input.addEventListener('click', () => (isAsync ? null : render()));
+  input.addEventListener('input', () => (isAsync ? setTimeout(render, 300) : render()));
+  input.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+});
+</script>
+</body>
+</html>

@@ -112,7 +112,17 @@ Every row is written to both: the Sheet first, then the local Excel file.
    in the tracker.
 1b. **Google Sheet tracker:** rows go to the Google Sheet and the Excel file (see above).
 2. **Greenhouse filler.** Done when: a real Greenhouse form is filled and paused,
-   with nothing submitted.
+   with nothing submitted. (Done 2026-10-14 on a Figma posting.) Confirmed details:
+   - Questions: `GET boards-api.greenhouse.io/v1/boards/{board}/jobs/{id}?questions=true`
+     returns `questions`, `location_questions`, `compliance` (EEO) and `education`.
+   - The form is `#application-form` at `job-boards.greenhouse.io/{board}/jobs/{id}`.
+     Company sites with `?gh_jid=` embed `job-boards.greenhouse.io/embed/job_app?for={board}&token={id}`.
+   - Element ids equal the API field names (`first_name`, `resume`, `question_<n>`,
+     `gender`, `veteran_status`). Exceptions: location (`candidate-location`), the phone
+     country (`country`) and education (`school--0`, `degree--0`).
+   - Dropdowns are react-select (`input[role=combobox]` in `.select-shell`, options
+     `.select__option`). Location and school are autocompletes.
+   - The filler only clicks through a guard that refuses submit buttons, and never presses Enter.
 3. **Ashby**, then **Lever**, using the same pattern.
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;

@@ -42,8 +42,10 @@ Added row 899 to Job Application Tracker.xlsx.
    continuing.
 3. **Reads job details** from the public Greenhouse, Ashby and Lever APIs, or from a page's
    `JobPosting` JSON-LD. Anything it can't find, it asks you in the terminal.
-4. **Waits for you** to submit. Press Enter for applied or `s` for skipped.
-5. **Writes the row** with Company, Position, URL (as a link), "Posted date/ Source",
+4. **Fills the form** (Greenhouse only, for now) in a visible Chrome window. See
+   [Form filling](#form-filling).
+5. **Waits for you** to submit. Press Enter for applied or `s` for skipped.
+6. **Writes the row** with Company, Position, URL (as a link), "Posted date/ Source",
    today's date and `Applied`. The Sheet gets it first, then the Excel file.
 
 ## Setup (Windows, Python 3.11+)
@@ -90,15 +92,44 @@ won't write into the wrong sheet.
 ## Usage
 
 ```
-python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet]
+python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
 ```
 
 | Option | Meaning |
 |---|---|
-| `--source` | where you found the job; goes into column D |
+| `--source` | where you found the job; goes into column D and answers "How did you hear about us?" |
 | `--tracker` | a different local Excel file |
 | `--no-sheet` | skip the Google Sheet for this run |
+| `--no-fill` | don't open or fill the form |
+| `--profile`, `--answers` | different `profile.yaml` / `answers.yaml` files |
 | `--config` | a different config file (default `config.yaml`) |
+
+## Form filling
+
+For a Greenhouse link (including company sites with `?gh_jid=`), the tool reads the
+form's questions from the public job board API and opens the form in Chrome. Chrome
+uses its own profile in `browser-profile/`, so logins stay saved. Then:
+
+- **Your details:** name, email, phone, location, resume, links, current job and EEO
+  answers come from `profile.yaml`.
+- **Custom questions:** matched by their label (lowercased, punctuation removed) against
+  `answers.yaml`. A few common questions have built-in rules that point at your profile:
+  work authorization, sponsorship (a "now or in the future" question uses your *future*
+  answer), relocation, start date and salary. These rules only answer dropdowns, so a
+  free-text question that merely mentions relocation isn't filled with "Yes".
+- **Dropdowns only take an exact option.** If your profile says `Not a Veteran` and the
+  options are `I am not a protected veteran` / `I don't wish to answer`, nothing is
+  picked. The summary tells you, and you choose it yourself.
+- **Unknown required field:** it's outlined in red in the page, and the terminal shows
+  the question (with numbered options for a dropdown). Type the answer, or press Enter to
+  fill it in the browser yourself. After an answer you're asked
+  `Save to answers.yaml? [Y/n]`, so next time it's filled automatically.
+- **Unknown optional field:** left blank and listed in the summary.
+
+Then it prints a summary (filled, left blank, needs your attention) and waits. **It never
+clicks Submit and never presses Enter in the form.** You review and submit; the browser
+closes after you answer the prompt. If anything goes wrong while filling (Chrome missing,
+page changed), it says so and you fill the form by hand. The tracker step still works.
 
 ## Files
 
@@ -107,7 +138,8 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--n
 | `apply.py` | entry point |
 | `tracker.py` | Excel tracker: duplicate check, row writing, backups, pending rows |
 | `sheet_tracker.py` | the same for the Google Sheet |
-| `ats/` | one module per job system: reads company, position and posted date |
+| `ats/` | one module per job system: reads company, position and posted date; `greenhouse.py` also fills the form |
+| `ats/form.py` | shared filling rules: profile and `answers.yaml` lookup, option matching |
 | `tests/` | pytest tests |
 | `SPEC.md` | the full spec and the milestone plan |
 
@@ -142,7 +174,7 @@ is skipped if Excel or pywin32 isn't installed.
 |---|---|
 | 1. Tracker: link in, details read, row written | done |
 | 1b. Google Sheet tracker | done |
-| 2. Greenhouse form filler (fills, pauses, never submits) | planned |
+| 2. Greenhouse form filler (fills, pauses, never submits) | done |
 | 3. Ashby, then Lever | planned |
 | 4. Workday | planned |
 | 5. Other sites | planned |

@@ -47,6 +47,17 @@ def no_real_google_sheet(tmp_path, monkeypatch):
     monkeypatch.setattr(sheet_tracker, "open_sheet", refuse)
 
 
+@pytest.fixture(autouse=True)
+def no_real_browser(tmp_path, monkeypatch):
+    """apply.main never opens Chrome or reads the real profile.yaml/answers.yaml; tests pass fill= instead."""
+    import apply
+
+    monkeypatch.setattr(apply, "FILLERS", {})
+    monkeypatch.setattr(apply, "DEFAULT_PROFILE", tmp_path / "no-profile.yaml")
+    monkeypatch.setattr(apply, "DEFAULT_ANSWERS", tmp_path / "no-answers.yaml")
+    monkeypatch.setattr(apply, "BROWSER_PROFILE", tmp_path / "no-browser-profile")
+
+
 # A made-up job planted at row 199 of the temp copy, so duplicate tests never name a real application.
 KNOWN_ROW = 199
 KNOWN_COMPANY = "Example Labs, Inc."

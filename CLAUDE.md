@@ -9,6 +9,7 @@ Read SPEC.md before planning any change. Build one milestone per session.
 - Tests never call the real Google Sheet; they use a fake worksheet.
 - Tests and experiments use tracker_copy.xlsx only. Never write to "Job Application Tracker.xlsx" unless I run apply.py myself.
 - Do not edit profile.yaml or answers.yaml values without asking me.
+- Commits: no `Co-Authored-By: Claude` line (or any other Claude/AI attribution) in commit messages or PR descriptions. I'm the only author.
 
 ## Stack
 - Windows, Python 3.11+, virtual env in .venv
