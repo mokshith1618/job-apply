@@ -4,12 +4,13 @@ from datetime import date
 from openpyxl import load_workbook
 
 import apply
+from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
 import tracker
 from ats.common import JobDetails
 
 TODAY = date(2026, 10, 13)
 NEW_URL = "https://job-boards.greenhouse.io/acme/jobs/1234567"
-DUP_URL = "https://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907"
+DUP_URL = KNOWN_URL
 
 
 class Script:
@@ -55,7 +56,8 @@ def test_s_skips_without_writing(tracker_file):
     assert not (tracker_file.parent / "backups").exists()
 
 
-def test_duplicate_url_shows_old_row_and_stops(tracker_file, capsys):
+def test_duplicate_url_shows_old_row_and_stops(dup_tracker, capsys):
+    tracker_file = dup_tracker
     before = tracker_file.read_bytes()
 
     def must_not_fetch(url):
@@ -63,19 +65,21 @@ def test_duplicate_url_shows_old_row_and_stops(tracker_file, capsys):
 
     assert run(tracker_file, DUP_URL + "?utm_source=Tsenta", Script("n"), fetch=must_not_fetch) == 1
     out = capsys.readouterr().out
-    assert "row 199" in out and "Applied Intuition" in out
+    assert f"row {KNOWN_ROW}" in out and KNOWN_COMPANY in out
     assert tracker_file.read_bytes() == before
 
 
-def test_duplicate_url_continue_anyway(tracker_file):
+def test_duplicate_url_continue_anyway(dup_tracker):
+    tracker_file = dup_tracker
     script = Script("y", "")
     assert run(tracker_file, DUP_URL, script) == 0
     assert cell(tracker_file, "C898") == DUP_URL
 
 
-def test_duplicate_company_position_asks(tracker_file):
+def test_duplicate_company_position_asks(dup_tracker):
+    tracker_file = dup_tracker
     def fetch_dup(url):
-        return JobDetails("Applied Intuition, Inc.", "Software Engineer - Python", date(2026, 6, 20))
+        return JobDetails(KNOWN_COMPANY, KNOWN_POSITION, date(2026, 6, 20))
 
     before = tracker_file.read_bytes()
     script = Script("n")

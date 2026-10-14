@@ -6,14 +6,15 @@ import pytest
 from openpyxl import load_workbook
 
 import tracker
+from conftest import KNOWN_POSITION, KNOWN_ROW, KNOWN_URL, KNOWN_COMPANY
 from tracker import TrackerRow
 
 TODAY = date(2026, 10, 13)
 EXPECTED_ROW = 898  # first row after the last Company value in tracker_copy.xlsx (SPEC.md)
 HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome",
            "Remarks", "Experience", "Key Skills"]
-ASHBY_ROW = 199
-ASHBY_URL = "https://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907?utm_source=LinkedInPaid"
+ASHBY_ROW = KNOWN_ROW
+ASHBY_URL = KNOWN_URL + "?utm_source=LinkedInPaid"
 
 
 def new_row(**kw) -> TrackerRow:
@@ -148,25 +149,25 @@ def test_opens_in_real_excel(tracker_file):
 
 # ---------- Done when: the duplicate check catches a URL already in the tracker ----------
 
-def test_duplicate_exact_url(tracker_file):
-    hits = tracker.find_duplicates(tracker_file, url=ASHBY_URL)
+def test_duplicate_exact_url(dup_tracker):
+    hits = tracker.find_duplicates(dup_tracker, url=ASHBY_URL)
     assert [r for r, _ in hits] == [ASHBY_ROW]
-    assert hits[0][1][0] == "Applied Intuition, Inc."
+    assert hits[0][1][0] == KNOWN_COMPANY
 
 
 @pytest.mark.parametrize("variant", [
-    "https://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907",
-    "https://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907?utm_source=Tsenta&utm_medium=x",
-    "http://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907/application",
-    "https://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907/?source=LinkedIn#top",
+    KNOWN_URL,
+    KNOWN_URL + "?utm_source=Tsenta&utm_medium=x",
+    KNOWN_URL.replace("https:", "http:") + "/application",
+    KNOWN_URL + "/?source=LinkedIn#top",
 ])
-def test_duplicate_url_ignores_tracking_params(tracker_file, variant):
-    assert [r for r, _ in tracker.find_duplicates(tracker_file, url=variant)] == [ASHBY_ROW]
+def test_duplicate_url_ignores_tracking_params(dup_tracker, variant):
+    assert [r for r, _ in tracker.find_duplicates(dup_tracker, url=variant)] == [ASHBY_ROW]
 
 
-def test_duplicate_company_and_position(tracker_file):
-    hits = tracker.find_duplicates(tracker_file, url="https://example.com/other-link",
-                                   company="  applied intuition, INC. ", position="Software Engineer - Python")
+def test_duplicate_company_and_position(dup_tracker):
+    hits = tracker.find_duplicates(dup_tracker, url="https://example.com/other-link",
+                                   company="  example LABS, inc. ", position=KNOWN_POSITION)
     assert ASHBY_ROW in [r for r, _ in hits]
 
 

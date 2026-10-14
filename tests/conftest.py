@@ -45,3 +45,24 @@ def no_real_google_sheet(tmp_path, monkeypatch):
         raise AssertionError("tests must not open the real Google Sheet")
 
     monkeypatch.setattr(sheet_tracker, "open_sheet", refuse)
+
+
+# A made-up job planted at row 199 of the temp copy, so duplicate tests never name a real application.
+KNOWN_ROW = 199
+KNOWN_COMPANY = "Example Labs, Inc."
+KNOWN_POSITION = "Software Engineer - Python"
+KNOWN_URL = "https://jobs.ashbyhq.com/examplelabs/00000000-0000-4000-8000-000000000199"
+
+
+@pytest.fixture
+def dup_tracker(tracker_file) -> Path:
+    """tracker_file with the KNOWN_* job in row 199 (C as text and hyperlink, like real rows)."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(tracker_file)
+    ws = wb["Sheet1"]
+    ws.cell(KNOWN_ROW, 1, KNOWN_COMPANY)
+    ws.cell(KNOWN_ROW, 2, KNOWN_POSITION)
+    ws.cell(KNOWN_ROW, 3, KNOWN_URL).hyperlink = KNOWN_URL
+    wb.save(tracker_file)
+    return tracker_file

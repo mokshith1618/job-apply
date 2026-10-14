@@ -8,6 +8,7 @@ import requests
 from openpyxl import load_workbook
 
 import apply
+from conftest import KNOWN_ROW, KNOWN_URL
 import sheet_tracker
 import tracker
 from ats.common import JobDetails
@@ -79,7 +80,7 @@ class FakeWorksheet:
 def sample_sheet(**kwargs):
     return FakeWorksheet([
         HEADER,
-        ["Applied Intuition", "Software Engineer - Python", "https://jobs.ashbyhq.com/applied/32e39ce9",
+        ["Example Labs", "Software Engineer - Python", "https://jobs.ashbyhq.com/examplelabs/1234abcd",
          "Posted today-Tsenta", "6/20/2026", "Applied"],
         ["Linked Co", "Backend Engineer", "click here", "Posted today-LinkedIn", "7/1/2026", "Rejected"],
         ["", "", "", "", "", "", "a remark with no company"],
@@ -142,7 +143,7 @@ def test_backup_csv_holds_values_before_the_write(tmp_path):
     (backup,) = (tmp_path / "backups").glob("sheet-*.csv")
     with open(backup, newline="", encoding="utf-8-sig") as f:
         rows = list(csv.reader(f))
-    assert rows[0] == HEADER and len(rows) == 4 and rows[1][0] == "Applied Intuition"
+    assert rows[0] == HEADER and len(rows) == 4 and rows[1][0] == "Example Labs"
 
 
 def test_full_sheet_gets_more_rows(tmp_path):
@@ -159,9 +160,9 @@ def test_second_row_goes_below_first(tmp_path):
 
 def test_duplicates_by_url_hyperlink_target_and_company_position():
     ws = sample_sheet()
-    hits = sheet_tracker.find_duplicates(ws, url="https://www.jobs.ashbyhq.com/applied/32e39ce9/?utm_source=x")
+    hits = sheet_tracker.find_duplicates(ws, url="https://www.jobs.ashbyhq.com/examplelabs/1234abcd/?utm_source=x")
     assert [r for r, _ in hits] == [2]
-    assert hits[0][1][0] == "Applied Intuition" and len(hits[0][1]) == 6
+    assert hits[0][1][0] == "Example Labs" and len(hits[0][1]) == 6
     assert [r for r, _ in sheet_tracker.find_duplicates(ws, url=LINKED_URL + "/apply")] == [3]
     assert [r for r, _ in sheet_tracker.find_duplicates(ws, company="linked co", position="BACKEND  engineer")] == [3]
     assert sheet_tracker.find_duplicates(ws, url=NEW_URL, company="Acme", position="SWE") == []
@@ -268,7 +269,8 @@ def test_no_sheet_flag_is_excel_only(tracker_file):
     assert not (tracker_file.parent / "pending_sheet.json").exists()
 
 
-def test_config_sheet_unreachable_falls_back_to_excel(tracker_file, tmp_path, monkeypatch, capsys):
+def test_config_sheet_unreachable_falls_back_to_excel(dup_tracker, tmp_path, monkeypatch, capsys):
+    tracker_file = dup_tracker
     config = tmp_path / "config.yaml"
     config.write_text(f"sheet_id: abc\nlocal_tracker: '{tracker_file}'\n", encoding="utf-8")
 
@@ -277,11 +279,11 @@ def test_config_sheet_unreachable_falls_back_to_excel(tracker_file, tmp_path, mo
         raise SheetUnavailable("offline")
 
     monkeypatch.setattr(sheet_tracker, "open_sheet", unreachable)
-    dup_url = "https://jobs.ashbyhq.com/applied/32e39ce9-9c09-4dd9-9ad1-4ee0b0cf7907"
+    dup_url = KNOWN_URL
     assert apply.main([dup_url, "--config", str(config)], input_fn=Script("n"),
                       fetch=fetch_ok, today=TODAY) == 1  # duplicate found in the Excel file
     out = capsys.readouterr().out
-    assert "Google Sheet unavailable: offline" in out and "row 199" in out
+    assert "Google Sheet unavailable: offline" in out and f"row {KNOWN_ROW}" in out
 
     assert apply.main([NEW_URL, "--config", str(config)], input_fn=Script(""), fetch=fetch_ok, today=TODAY) == 0
     assert excel(tracker_file, "A898") == "Acme Robotics"
