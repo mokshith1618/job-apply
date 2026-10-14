@@ -31,3 +31,17 @@ def tracker_file(tmp_path) -> Path:
     dest = tmp_path / "tracker_copy.xlsx"
     shutil.copy2(TRACKER_COPY, dest)
     return dest
+
+
+@pytest.fixture(autouse=True)
+def no_real_google_sheet(tmp_path, monkeypatch):
+    """Tests never read the real config.yaml or open the real Google Sheet; they pass a FakeWorksheet."""
+    import apply
+    import sheet_tracker
+
+    monkeypatch.setattr(apply, "DEFAULT_CONFIG", tmp_path / "no-config.yaml")
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("tests must not open the real Google Sheet")
+
+    monkeypatch.setattr(sheet_tracker, "open_sheet", refuse)

@@ -5,6 +5,9 @@ answers.yaml
 *.pdf
 backups/
 pending_rows.json
+pending_sheet.json
+config.yaml
+google-key.json
 browser-profile/
 
 # Python

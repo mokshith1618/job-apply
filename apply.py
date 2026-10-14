@@ -1,8 +1,9 @@
 """Job Apply Helper entry point.
 
-    python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH]
+    python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet]
 
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
+Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
 This script never submits anything. I submit the application myself.
 """
 from __future__ import annotations
@@ -12,11 +13,16 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 import ats
+import sheet_tracker
 import tracker
+from sheet_tracker import SheetMismatch, SheetUnavailable
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_TRACKER = HERE / "Job Application Tracker.xlsx"
+DEFAULT_CONFIG = HERE / "config.yaml"
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
 
 
@@ -48,6 +54,71 @@ def show_duplicates(hits) -> None:
         print(f"  row {row}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
 
 
+def load_config(path: Path) -> dict:
+    """config.yaml: sheet_id, sheet_tab, google_key, local_tracker. Missing file = Excel only."""
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise SystemExit(f"{path.name} should hold 'key: value' lines.")
+    return data
+
+
+def _resolve(value) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else HERE / path
+
+
+class Sheet:
+    """The Google Sheet side of a run. `ws` is None when the Sheet is off or couldn't be reached."""
+
+    def __init__(self, enabled: bool, ws, pending: Path, backup_dir: Path):
+        self.enabled = enabled
+        self.ws = ws
+        self.pending = pending
+        self.backup_dir = backup_dir
+
+    def failed(self, exc: Exception) -> None:
+        print(f"Google Sheet unavailable: {exc}")
+        self.ws = None
+
+    def flush_pending(self) -> None:
+        if self.ws is None or not self.pending.exists():
+            return
+        try:
+            for r, row in tracker.flush_pending(None, self.pending, append=self.append):
+                print(f"Wrote pending row {r} to the Google Sheet: {row.company} - {row.position}")
+        except (SheetUnavailable, SheetMismatch) as exc:
+            self.failed(exc)
+            print(f"Note: rows in {self.pending.name} are still waiting for the Google Sheet.")
+
+    def append(self, row: tracker.TrackerRow) -> int:
+        return sheet_tracker.append_row(self.ws, row, self.backup_dir)
+
+    def find_duplicates(self, tracker_path: Path, **match) -> list:
+        """Check the Sheet; if it can't be reached, check the Excel file instead."""
+        if self.ws is not None:
+            try:
+                return sheet_tracker.find_duplicates(self.ws, **match)
+            except (SheetUnavailable, SheetMismatch) as exc:
+                self.failed(exc)
+                print(f"Checking duplicates in {tracker_path.name} instead.")
+        return tracker.find_duplicates(tracker_path, **match)
+
+    def write(self, row: tracker.TrackerRow) -> None:
+        if not self.enabled:
+            return
+        if self.ws is not None:
+            try:
+                r = self.append(row)
+                print(f"Added row {r} to the Google Sheet.")
+                return
+            except (SheetUnavailable, SheetMismatch) as exc:
+                self.failed(exc)
+        tracker.save_pending(self.pending, row)
+        print(f"Row saved in {self.pending.name}; it goes to the Google Sheet on the next run.")
+
+
 def write_row(tracker_path: Path, row: tracker.TrackerRow, input_fn) -> int:
     """Keep the row in pending_rows.json until it's in the tracker, so nothing is lost if Excel has it open."""
     pending = tracker.pending_path_for(tracker_path)
@@ -61,19 +132,44 @@ def write_row(tracker_path: Path, row: tracker.TrackerRow, input_fn) -> int:
                      "Close Excel, then press Enter to retry. ")
 
 
-def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None = None) -> int:
+def open_sheet(config: dict, tracker_path: Path, no_sheet: bool, ws=None) -> Sheet:
+    """`ws` lets tests pass a fake worksheet instead of opening the real Sheet."""
+    enabled = not no_sheet and (ws is not None or bool(config.get("sheet_id")))
+    sheet = Sheet(enabled, None, tracker_path.parent / "pending_sheet.json", tracker_path.parent / "backups")
+    if not enabled:
+        return sheet
+    if ws is None:
+        try:
+            ws = sheet_tracker.open_sheet(config["sheet_id"], config.get("sheet_tab", "Sheet1"),
+                                          _resolve(config.get("google_key", "google-key.json")))
+        except SheetUnavailable as exc:
+            sheet.failed(exc)
+            print(f"Checking duplicates in {tracker_path.name}; the row will wait in {sheet.pending.name}.")
+            return sheet
+    sheet.ws = ws
+    return sheet
+
+
+def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None = None, sheet_ws=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, wait for me to apply, then log it.")
     parser.add_argument("url")
     parser.add_argument("--source", choices=["LinkedIn", "Tsenta", "Other"], default="Other")
-    parser.add_argument("--tracker", type=Path, default=DEFAULT_TRACKER)
+    parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
+    parser.add_argument("--no-sheet", action="store_true", help="Excel only; skip the Google Sheet")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args(argv)
     today = today or date.today()
     url = args.url.strip()
-    tracker_path: Path = args.tracker
+    config = load_config(args.config)
+    tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
+                                          else DEFAULT_TRACKER)
 
     if not tracker_path.exists():
         print(f"Tracker not found: {tracker_path}")
         return 2
+
+    sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
+    sheet.flush_pending()  # rows from a run where the Sheet couldn't be reached
 
     # Rows left over from a run where Excel had the file open.
     try:
@@ -86,7 +182,7 @@ def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None 
     print(f"System: {system}")
 
     seen = set()
-    hits = tracker.find_duplicates(tracker_path, url=url)
+    hits = sheet.find_duplicates(tracker_path, url=url)
     if hits:
         show_duplicates(hits)
         if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
@@ -99,7 +195,7 @@ def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None 
     position = details.position or ask_required("Position", input_fn)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
-    hits = [h for h in tracker.find_duplicates(tracker_path, company=company, position=position)
+    hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
             if h[0] not in seen]
     if hits:
         show_duplicates(hits)
@@ -123,6 +219,7 @@ def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None 
         if answer == "":
             break
 
+    sheet.write(row)
     r = write_row(tracker_path, row, input_fn)
     print(f"Added row {r} to {tracker_path.name}.")
     return 0

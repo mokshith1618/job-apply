@@ -71,27 +71,39 @@ def _norm_text(value) -> str:
     return " ".join(str(value).casefold().split()) if value else ""
 
 
+def match_rows(rows, url: str | None = None, company: str | None = None,
+               position: str | None = None) -> list[tuple[int, list]]:
+    """Pick duplicates from `rows` = [(row number, A..F values, urls in C)]. -> [(row, A..F values)]
+
+    A row matches if one of its URLs matches `url`, or its company AND position both match.
+    """
+    want_url = normalize_url(url) if url else None
+    want_pair = (_norm_text(company), _norm_text(position)) if company and position else None
+    hits = []
+    for r, values, urls in rows:
+        url_hit = want_url is not None and any(normalize_url(u) == want_url for u in urls)
+        pair_hit = want_pair is not None and (_norm_text(values[0]), _norm_text(values[1])) == want_pair
+        if url_hit or pair_hit:
+            hits.append((r, values))
+    return hits
+
+
 def find_duplicates(path, url: str | None = None, company: str | None = None,
                     position: str | None = None) -> list[tuple[int, list]]:
     """Rows whose URL matches `url`, or whose company AND position both match. -> [(row, A..F values)]"""
     wb = load_workbook(path)  # not read_only: hyperlink targets are needed too
     ws = wb[SHEET]
-    want_url = normalize_url(url) if url else None
-    want_pair = (_norm_text(company), _norm_text(position)) if company and position else None
-    hits = []
+    rows = []
     for row in ws.iter_rows(min_row=2, max_col=LAST_COL):
-        a, b, c = row[0], row[1], row[2]
+        a, c = row[0], row[2]
         if a.value is None and c.value is None:
             continue
         urls = [str(c.value)] if c.value else []
         if c.hyperlink is not None and c.hyperlink.target:
             urls.append(c.hyperlink.target)
-        url_hit = want_url is not None and any(normalize_url(u) == want_url for u in urls)
-        pair_hit = want_pair is not None and (_norm_text(a.value), _norm_text(b.value)) == want_pair
-        if url_hit or pair_hit:
-            hits.append((a.row, [cell.value for cell in row[:6]]))
+        rows.append((a.row, [cell.value for cell in row[:6]], urls))
     wb.close()
-    return hits
+    return match_rows(rows, url, company, position)
 
 
 # ---------- writing ----------
@@ -218,16 +230,19 @@ def save_pending(pending_path, row: TrackerRow) -> None:
     _write_pending(pending_path, load_pending(pending_path) + [row])
 
 
-def flush_pending(path, pending_path=None, backup_dir=None) -> list[tuple[int, TrackerRow]]:
+def flush_pending(path, pending_path=None, backup_dir=None, append=None) -> list[tuple[int, TrackerRow]]:
     """Write every pending row to the tracker, removing each from the file once it's saved.
 
-    Raises TrackerLocked (with the unwritten rows still pending) if the tracker is open in Excel.
+    `append(row) -> row number` writes one row; the default is append_row on the Excel file at `path`.
+    Raises TrackerLocked (with the unwritten rows still pending) if the tracker is open in Excel;
+    any error from `append` likewise leaves the unwritten rows pending.
     """
     pending_path = pending_path or pending_path_for(path)
+    append = append or (lambda row: append_row(path, row, backup_dir))
     rows = load_pending(pending_path)
     written = []
     while rows:
-        r = append_row(path, rows[0], backup_dir)
+        r = append(rows[0])
         written.append((r, rows.pop(0)))
         _write_pending(pending_path, rows)
     return written

@@ -7,7 +7,8 @@ to my Excel tracker.
 ## Hard rules
 
 1. **Never submit.** The tool never clicks a submit/apply/send button. I click it myself.
-2. **No AI or API calls at runtime.** Everything is plain code. Unknown questions go to me.
+2. **No AI calls at runtime.** Everything is plain code. Network calls only to job-board
+   APIs and the Google Sheets API for the tracker. Unknown questions go to me.
 3. **Never guess** work authorization, sponsorship, salary, start date, relocation,
    or demographic (EEO) answers. They come from `profile.yaml` or from me.
 4. **Never lose tracker data.** Back up the tracker before every write.
@@ -71,13 +72,33 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
 - If the file is open in Excel (PermissionError on Windows), keep the row in
   `pending_rows.json`, tell me to close Excel, and retry. Nothing is lost.
 
+## Google Sheet tracker
+
+The main tracker is a native Google Sheet with the same columns A..I as the Excel file.
+Every row is written to both: the Sheet first, then the local Excel file.
+
+- Config in `config.yaml` (gitignored): `sheet_id`, `sheet_tab`, `google_key`, `local_tracker`.
+  No `config.yaml` or no `sheet_id` = Excel only. `--no-sheet` also means Excel only.
+- Access through a Google Cloud **service account** (`google-key.json`, gitignored). The Sheet
+  is shared with the service account email as Editor.
+- Before writing, check that row 1 holds the A..I headers; if not, write nothing.
+- Duplicate check reads the Sheet (display text, plus `=HYPERLINK()` targets in column C).
+  If the Sheet can't be reached, fall back to the Excel file.
+- Write at the first row after the last Company value. C = `=HYPERLINK(url, url)`,
+  E = the date as `M/d/yyyy`, entered as if typed, F = `Applied`. Copy format and data
+  validation from the row above so the Outcome dropdown carries on.
+- Before each write, save the Sheet's values to `backups/sheet-YYYYMMDD-HHMMSS.csv`.
+- If the Sheet can't be reached, keep the row in `pending_sheet.json` and write it next run.
+
 ## Files
 
 | File | Purpose |
 |---|---|
 | `apply.py` | entry point |
 | `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `generic.py` |
-| `tracker.py` | duplicate check and row writing |
+| `tracker.py` | duplicate check and row writing (Excel) |
+| `sheet_tracker.py` | the same for the Google Sheet |
+| `config.yaml` | Sheet ID, tab, key path, local tracker path |
 | `profile.yaml` | my details (filled from resume; sensitive answers set by me) |
 | `answers.yaml` | saved answers to custom questions, grows over time |
 | `tracker_copy.xlsx` | test copy. Tests use only this file. |
@@ -89,6 +110,7 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
    Done when: tests pass on `tracker_copy.xlsx`; a new row appears at row 898 with the
    right formats; the file still opens in Excel; duplicate check catches a URL already
    in the tracker.
+1b. **Google Sheet tracker:** rows go to the Google Sheet and the Excel file (see above).
 2. **Greenhouse filler.** Done when: a real Greenhouse form is filled and paused,
    with nothing submitted.
 3. **Ashby**, then **Lever**, using the same pattern.
