@@ -24,7 +24,10 @@ DATE_FORMAT = "M/d/yyyy"
 OUTCOME = "Applied"
 LAST_COL = 9  # A..I
 TABLE_GROWTH = 100  # rows added to Table1 and the E/F validations when the table is full
-TRACKING_PARAMS = {"source", "gh_src", "lever-source", "lever-origin"}  # plus every utm_*
+TRACKING_PARAMS = {"source", "gh_src", "lever-source", "lever-origin",  # plus every utm_*
+                   # iCIMS page-display params
+                   "mobile", "width", "height", "bga", "needsredirect", "jan1offset", "jun1offset",
+                   "in_iframe"}
 JOB_PAGE_SUFFIXES = ("/apply", "/application")  # Lever / Ashby form pages = same job
 
 

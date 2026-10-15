@@ -97,6 +97,15 @@ def test_missing_details_are_asked(tracker_file):
     assert cell(tracker_file, "D898") == "Posted today-Tsenta"
 
 
+def test_guesses_are_offered_not_used_silently(tracker_file):
+    guessed = JobDetails(posted_date=date(2026, 10, 8), company_guess="Beta Corp", position_guess="Dev")
+    script = Script("", "Backend Engineer", "")  # Enter accepts the company guess; typing replaces the title
+    assert run(tracker_file, "https://example.com/job/9", script, fetch=lambda u: guessed) == 0
+    assert script.prompts[:2] == ["Company [Beta Corp] (Enter = use this): ", "Position [Dev] (Enter = use this): "]
+    assert cell(tracker_file, "A898") == "Beta Corp"
+    assert cell(tracker_file, "B898") == "Backend Engineer"
+
+
 def test_excel_open_keeps_row_pending_until_closed(tracker_file, monkeypatch):
     real_replace = tracker.os.replace
     attempts = {"n": 0}

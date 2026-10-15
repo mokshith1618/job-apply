@@ -26,16 +26,30 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
    - Ashby: `jobs.ashbyhq.com`
    - Lever: `jobs.lever.co`
    - Workday: `*.myworkdayjobs.com`
+   - iCIMS: `*.icims.com`
+   - Oracle Cloud: `*.oraclecloud.com` with `/CandidateExperience/` in the path
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
-   `source`, `gh_src` removed) and company + position against the tracker. If it
+   `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. If it
    matches, show the old row and ask whether to continue.
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
+   - iCIMS: the page is a branded wrapper; the job is in an iframe at the same path with
+     `?in_iframe=1`, which has `JobPosting` JSON-LD.
+   - Oracle Cloud: `GET {host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder=ById;Id="{id}",siteNumber={site}`
+     → `items[0].Title`, `items[0].ExternalPostedStartDate`. No company in that API; use
+     `SeoOrganizationName` from `recruitingCESites?onlyData=true&q=SiteNumber={site}` when set,
+     else ask me.
    - Other sites: the page's `JobPosting` JSON-LD (`title`, `hiringOrganization`,
      `datePosted`) if present.
-   - If still missing: ask me in the terminal.
+   - Still missing: load the page in Chrome (headless, `browser-profile/` so my logins apply),
+     wait up to 10 s for JavaScript, and read `JobPosting` JSON-LD from the page and every
+     iframe. Read only: no clicks.
+   - Still missing: ask me in the terminal. Company and position guesses from `og:site_name`,
+     `og:title`, `<h1>` and `<title>` are offered as defaults (Enter accepts). A JSON-LD company
+     that needs tidying ("JPMC Candidate Experience page", Workday's "2100 NVIDIA USA") is also
+     only a guess. The posted date is never guessed.
 4. **Open the form** in a visible browser (Playwright, Chrome channel, persistent profile
    folder `browser-profile/` so logins stay saved).
 5. **Fill fields:**
@@ -95,7 +109,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | File | Purpose |
 |---|---|
 | `apply.py` | entry point |
-| `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `generic.py` |
+| `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `icims.py`, `oracle.py`, `generic.py`, `browser.py` (page reading in Chrome) |
 | `tracker.py` | duplicate check and row writing (Excel) |
 | `sheet_tracker.py` | the same for the Google Sheet |
 | `config.yaml` | Sheet ID, tab, key path, local tracker path |

@@ -10,6 +10,7 @@ This script never submits anything. I submit the application myself.
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 from datetime import date
 from pathlib import Path
@@ -19,7 +20,7 @@ import yaml
 import ats
 import sheet_tracker
 import tracker
-from ats import greenhouse
+from ats import browser, greenhouse
 from sheet_tracker import SheetMismatch, SheetUnavailable
 
 HERE = Path(__file__).resolve().parent
@@ -32,11 +33,15 @@ FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tes
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
 
 
-def ask_required(label: str, input_fn) -> str:
+def ask_required(label: str, input_fn, suggestion: str | None = None) -> str:
+    """A suggestion is a guess from the page's tags: Enter accepts it, typing replaces it."""
+    prompt = f"{label} [{suggestion}] (Enter = use this): " if suggestion else f"{label}: "
     while True:
-        value = " ".join(input_fn(f"{label}: ").split())
+        value = " ".join(input_fn(prompt).split())
         if value:
             return value
+        if suggestion:
+            return suggestion
 
 
 def ask_posted_date(input_fn, today: date) -> date | None:
@@ -176,7 +181,12 @@ def open_form(filler, url: str, args, input_fn):
     return session
 
 
-def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None = None, sheet_ws=None,
+def read_details(url: str) -> ats.JobDetails:
+    """Job APIs and the page's JSON-LD; Chrome (my saved logins) only for what is still missing."""
+    return ats.fetch_details(url, render=functools.partial(browser.render_page, user_data_dir=BROWSER_PROFILE))
+
+
+def main(argv=None, input_fn=input, fetch=read_details, today: date | None = None, sheet_ws=None,
          fill=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
     parser.add_argument("url")
@@ -221,8 +231,8 @@ def main(argv=None, input_fn=input, fetch=ats.fetch_details, today: date | None 
 
     print("Reading job details...")
     details = fetch(url)
-    company = details.company or ask_required("Company", input_fn)
-    position = details.position or ask_required("Position", input_fn)
+    company = details.company or ask_required("Company", input_fn, details.company_guess)
+    position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
     hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)

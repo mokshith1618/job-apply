@@ -190,6 +190,8 @@ def test_normalize_url():
     assert n("https://boards.greenhouse.io/x/jobs/1?gh_src=abc") == "boards.greenhouse.io/x/jobs/1"
     assert n("https://jobs.lever.co/acme/abc/apply?lever-source=LinkedIn") == "jobs.lever.co/acme/abc"
     assert n("https://site.com/careers?gh_jid=55") == "site.com/careers?gh_jid=55"
+    assert n("https://careers-x.icims.com/jobs/1/title/job?mobile=false&width=1380&height=500&bga=true"
+             "&needsRedirect=false&jan1offset=-420&jun1offset=-420") == "careers-x.icims.com/jobs/1/title/job"
 
 
 def test_format_posted():

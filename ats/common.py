@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) job-apply-helper"
@@ -15,6 +15,9 @@ class JobDetails:
     company: str | None = None
     position: str | None = None
     posted_date: date | None = None
+    # Read from page tags/title, not job data: only offered to me as a default, never used silently.
+    company_guess: str | None = field(default=None, compare=False)
+    position_guess: str | None = field(default=None, compare=False)
 
     def merge(self, other: "JobDetails") -> "JobDetails":
         """Fill fields that are still missing from another result."""
@@ -22,6 +25,8 @@ class JobDetails:
             company=self.company or other.company,
             position=self.position or other.position,
             posted_date=self.posted_date or other.posted_date,
+            company_guess=self.company_guess or other.company_guess,
+            position_guess=self.position_guess or other.position_guess,
         )
 
     def complete(self) -> bool:
