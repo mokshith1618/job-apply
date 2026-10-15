@@ -18,18 +18,25 @@ def _digest(path: Path):
 
 @pytest.fixture(scope="session", autouse=True)
 def originals_untouched():
-    """Tests work on a temp copy of tracker_copy.xlsx; neither original may change."""
+    """Tests use a generated fake tracker; tracker_copy.xlsx and the real tracker must never change."""
     before = (_digest(TRACKER_COPY), _digest(REAL_TRACKER))
     yield
     assert (_digest(TRACKER_COPY), _digest(REAL_TRACKER)) == before
 
 
+@pytest.fixture(scope="session")
+def fake_tracker_template(tmp_path_factory) -> Path:
+    """Built once per run: a made-up tracker with the real file's layout (tests/fake_tracker.py)."""
+    from fake_tracker import make_tracker
+
+    return make_tracker(tmp_path_factory.mktemp("template") / "tracker.xlsx")
+
+
 @pytest.fixture
-def tracker_file(tmp_path) -> Path:
-    """A fresh temp copy of tracker_copy.xlsx (never the real tracker)."""
-    assert TRACKER_COPY.exists(), "tracker_copy.xlsx is missing"
-    dest = tmp_path / "tracker_copy.xlsx"
-    shutil.copy2(TRACKER_COPY, dest)
+def tracker_file(tmp_path, fake_tracker_template) -> Path:
+    """A fresh copy of the fake tracker for each test (never tracker_copy.xlsx or the real tracker)."""
+    dest = tmp_path / "tracker.xlsx"
+    shutil.copy2(fake_tracker_template, dest)
     return dest
 
 
@@ -59,7 +66,7 @@ def no_real_browser(tmp_path, monkeypatch):
     monkeypatch.setattr(apply, "BROWSER_PROFILE", tmp_path / "no-browser-profile")
 
 
-# A made-up job planted at row 199 of the temp copy, so duplicate tests never name a real application.
+# A known job planted at row 199 of the fake tracker, for the duplicate tests.
 KNOWN_ROW = 199
 KNOWN_COMPANY = "Example Labs, Inc."
 KNOWN_POSITION = "Software Engineer - Python"

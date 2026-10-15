@@ -1,4 +1,4 @@
-"""End-to-end apply.py runs on a temp copy of tracker_copy.xlsx, with scripted terminal input."""
+"""End-to-end apply.py runs on a fake tracker (tests/fake_tracker.py), with scripted terminal input."""
 from datetime import date
 
 from openpyxl import load_workbook

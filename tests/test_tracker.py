@@ -10,7 +10,7 @@ from conftest import KNOWN_POSITION, KNOWN_ROW, KNOWN_URL, KNOWN_COMPANY
 from tracker import TrackerRow
 
 TODAY = date(2026, 10, 13)
-EXPECTED_ROW = 898  # first row after the last Company value in tracker_copy.xlsx (SPEC.md)
+EXPECTED_ROW = 898  # first row after the last Company value (fake_tracker.LAST_ROW + 1, as in SPEC.md)
 HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome",
            "Remarks", "Experience", "Key Skills"]
 ASHBY_ROW = KNOWN_ROW
@@ -80,6 +80,7 @@ def test_second_row_goes_to_899(tracker_file):
 
 def test_saved_file_is_structurally_intact(tracker_file):
     wb0 = load_workbook(tracker_file)
+    style_before = wb0["Sheet1"].tables["Table1"].tableStyleInfo.name
     links_before = sum(1 for row in wb0["Sheet1"].iter_rows() for c in row if c.hyperlink)
 
     tracker.append_row(tracker_file, new_row())
@@ -95,7 +96,7 @@ def test_saved_file_is_structurally_intact(tracker_file):
     assert table.ref == "A1:I1000"
     assert [col.name for col in table.tableColumns] == HEADERS
     assert [c.value for c in ws[1]][:9] == HEADERS
-    assert table.tableStyleInfo.name == "Sheet1-style"
+    assert table.tableStyleInfo.name == style_before
     assert {dv.type for dv in ws.data_validations.dataValidation} == {"list", "custom"}
     assert ws.freeze_panes == "A2"
     links_after = sum(1 for row in ws.iter_rows() for c in row if c.hyperlink)
