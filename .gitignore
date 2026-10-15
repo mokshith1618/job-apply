@@ -15,3 +15,6 @@ browser-profile/
 .venv/
 __pycache__/
 .pytest_cache/
+
+# Claude Code local settings (per machine)
+.claude/settings.local.json
