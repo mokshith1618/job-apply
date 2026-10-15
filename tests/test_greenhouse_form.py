@@ -7,11 +7,11 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from test_apply import Script
 
 import apply
 from ats import form, greenhouse
 from ats.common import JobDetails
-from test_apply import Script
 
 FIXTURE = Path(__file__).parent / "fixtures" / "greenhouse_form.html"
 

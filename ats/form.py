@@ -7,7 +7,8 @@ if the profile value is missing, or a dropdown has no option that matches exactl
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from pathlib import Path
 
 import yaml

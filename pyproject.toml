@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = [".venv", "browser-profile", "backups"]
+
+[tool.ruff.lint]
+# Pinned on purpose so a ruff upgrade can't add new rules: errors and likely bugs (E4/E7/E9/F)
+# plus import order (I). No style rewrites.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apply", "ats", "sheet_tracker", "tracker", "conftest", "fake_tracker"]

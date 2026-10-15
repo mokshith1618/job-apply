@@ -6,7 +6,7 @@ import pytest
 from openpyxl import load_workbook
 
 import tracker
-from conftest import KNOWN_POSITION, KNOWN_ROW, KNOWN_URL, KNOWN_COMPANY
+from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
 from tracker import TrackerRow
 
 TODAY = date(2026, 10, 13)

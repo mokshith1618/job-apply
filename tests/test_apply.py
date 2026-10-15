@@ -4,9 +4,9 @@ from datetime import date
 from openpyxl import load_workbook
 
 import apply
-from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
 import tracker
 from ats.common import JobDetails
+from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
 
 TODAY = date(2026, 10, 13)
 NEW_URL = "https://job-boards.greenhouse.io/acme/jobs/1234567"
