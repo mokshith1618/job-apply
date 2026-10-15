@@ -125,7 +125,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | `profile.yaml` | my details (filled from resume; sensitive answers set by me) |
 | `answers.yaml` | saved answers to custom questions, grows over time |
 | `companies.yaml` | company name per careers site, saved the first time I type it |
-| `tracker_copy.xlsx` | test copy. Tests use only this file. |
+| `tracker_copy.xlsx` | copy of the tracker for manual experiments. Tests build their own fake tracker (`tests/fake_tracker.py`). |
 | `tests/` | pytest tests |
 
 ## Milestones (build in this order, one per Claude session)
@@ -147,7 +147,11 @@ Every row is written to both: the Sheet first, then the local Excel file.
    - Dropdowns are react-select (`input[role=combobox]` in `.select-shell`, options
      `.select__option`). Location and school are autocompletes.
    - The filler only clicks through a guard that refuses submit buttons, and never presses Enter.
-3. **Ashby**, then **Lever**, using the same pattern.
+1c. **Job details from any link** (done 2026-10-15; details for the tracker only, no form filling):
+   iCIMS (iframe page), Oracle Cloud (recruiting API), Rippling (`__NEXT_DATA__`), the Chrome
+   fallback for JavaScript pages, company/position guesses offered as defaults, and
+   `companies.yaml` (company name remembered per careers site). See Flow step 3.
+3. **Ashby**, then **Lever**, using the same pattern. (Next.)
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;
    for the rest I use Claude in Chrome by hand.
