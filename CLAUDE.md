@@ -18,3 +18,7 @@ Read SPEC.md before planning any change. Build one milestone per session.
 ## Workflow
 - Run `pytest` after every change and show me the result.
 - When building a form filler, open a real job form with the browser tools to read its fields first.
+
+- Work on a branch per milestone. Commit after each step that passes pytest.
+- Never run git push. I push and merge myself.
+- Update SPEC.md before building anything not in it.
