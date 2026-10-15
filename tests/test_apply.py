@@ -132,3 +132,23 @@ def test_leftover_pending_rows_are_written_first(tracker_file):
     assert cell(tracker_file, "A898") == "Old Co"
     assert cell(tracker_file, "A899") == "Acme Robotics"
 
+
+
+def test_company_typed_once_is_remembered_for_the_site(tracker_file, tmp_path, capsys):
+    url = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/Dev_JR1"
+    no_company = lambda u: JobDetails(None, "Cloud Developer II", date(2026, 10, 8))  # noqa: E731
+    first = Script("Umbrella Corporation", "s")
+    assert run(tracker_file, url, first, fetch=no_company) == 0
+    assert first.prompts[0] == "Company [Umbrella] (Enter = use this): "  # suggested from the link
+    assert "Saved: umbrella.wd5.myworkdayjobs.com = Umbrella Corporation" in capsys.readouterr().out
+
+    second = Script("")  # only the pause prompt: the company isn't asked again
+    assert run(tracker_file, url.replace("Dev_JR1", "Ops_JR2"), second, fetch=no_company) == 0
+    assert second.prompts == [apply.PAUSE_PROMPT]
+    assert cell(tracker_file, "A898") == "Umbrella Corporation"
+
+
+def test_company_from_job_data_is_not_overridden_or_saved(tracker_file, tmp_path):
+    url = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/Dev_JR1"
+    assert run(tracker_file, url, Script("")) == 0  # fetch_ok has a company
+    assert not (tmp_path / "companies.yaml").exists()

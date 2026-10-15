@@ -55,6 +55,7 @@ def no_real_browser(tmp_path, monkeypatch):
     monkeypatch.setattr(apply, "FILLERS", {})
     monkeypatch.setattr(apply, "DEFAULT_PROFILE", tmp_path / "no-profile.yaml")
     monkeypatch.setattr(apply, "DEFAULT_ANSWERS", tmp_path / "no-answers.yaml")
+    monkeypatch.setattr(apply, "DEFAULT_COMPANIES", tmp_path / "companies.yaml")
     monkeypatch.setattr(apply, "BROWSER_PROFILE", tmp_path / "no-browser-profile")
 
 

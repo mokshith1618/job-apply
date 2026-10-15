@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlsplit
 
-from . import ashby, generic, greenhouse, icims, lever, oracle, workday
+from . import ashby, generic, greenhouse, icims, lever, oracle, rippling, workday
 from .common import JobDetails
 
 FETCHERS = {
@@ -13,6 +13,7 @@ FETCHERS = {
     "workday": workday.fetch_details,
     "icims": icims.fetch_details,
     "oracle": oracle.fetch_details,
+    "rippling": rippling.fetch_details,
     "other": generic.fetch_details,
 }
 
@@ -26,6 +27,8 @@ def detect_system(url: str) -> str:
         return "ashby"
     if host == "jobs.lever.co":
         return "lever"
+    if host == "ats.rippling.com":
+        return "rippling"
     if host.endswith(".myworkdayjobs.com"):
         return "workday"
     if host.endswith(".icims.com"):

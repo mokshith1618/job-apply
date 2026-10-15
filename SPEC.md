@@ -25,6 +25,7 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
    - Ashby: `jobs.ashbyhq.com`
    - Lever: `jobs.lever.co`
+   - Rippling: `ats.rippling.com`
    - Workday: `*.myworkdayjobs.com`
    - iCIMS: `*.icims.com`
    - Oracle Cloud: `*.oraclecloud.com` with `/CandidateExperience/` in the path
@@ -35,6 +36,9 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
+   - Rippling: no JSON-LD; the job page's Next.js `__NEXT_DATA__` script has
+     `props.pageProps.apiData.jobPost` → `name`, `companyName`, `createdOn` (`/apply` links map
+     to the job page). Its `og:site_name` is "Rippling Recruiting", not the employer.
    - iCIMS: the page is a branded wrapper; the job is in an iframe at the same path with
      `?in_iframe=1`, which has `JobPosting` JSON-LD.
    - Oracle Cloud: `GET {host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder=ById;Id="{id}",siteNumber={site}`
@@ -50,6 +54,11 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
      `og:title`, `<h1>` and `<title>` are offered as defaults (Enter accepts). A JSON-LD company
      that needs tidying ("JPMC Candidate Experience page", Workday's "2100 NVIDIA USA") is also
      only a guess. The posted date is never guessed.
+   - Company still missing (e.g. HPE's Workday leaves it blank everywhere): use the name I gave
+     this careers site before, from `companies.yaml`. Otherwise ask me, suggesting the name in
+     the link (`hpe.wd5.myworkdayjobs.com` -> `HPE`), and save my answer for the site. Only
+     single-company sites are saved (Workday/iCIMS/Oracle host, Greenhouse/Ashby/Lever/Rippling board),
+     never job boards like LinkedIn.
 4. **Open the form** in a visible browser (Playwright, Chrome channel, persistent profile
    folder `browser-profile/` so logins stay saved).
 5. **Fill fields:**
@@ -109,12 +118,13 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | File | Purpose |
 |---|---|
 | `apply.py` | entry point |
-| `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `icims.py`, `oracle.py`, `generic.py`, `browser.py` (page reading in Chrome) |
+| `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `rippling.py`, `icims.py`, `oracle.py`, `generic.py`, `browser.py` (page reading in Chrome) |
 | `tracker.py` | duplicate check and row writing (Excel) |
 | `sheet_tracker.py` | the same for the Google Sheet |
 | `config.yaml` | Sheet ID, tab, key path, local tracker path |
 | `profile.yaml` | my details (filled from resume; sensitive answers set by me) |
 | `answers.yaml` | saved answers to custom questions, grows over time |
+| `companies.yaml` | company name per careers site, saved the first time I type it |
 | `tracker_copy.xlsx` | test copy. Tests use only this file. |
 | `tests/` | pytest tests |
 

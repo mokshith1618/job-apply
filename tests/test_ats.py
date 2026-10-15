@@ -4,7 +4,9 @@ from datetime import date, datetime
 import pytest
 
 import ats
-from ats import ashby, generic, greenhouse, icims, lever, oracle
+import json
+
+from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling
 from ats.common import JobDetails
 
 
@@ -16,6 +18,7 @@ from ats.common import JobDetails
     ("https://jobs.lever.co/initech/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/apply", "lever"),
     ("https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/X_JR1", "workday"),
     ("https://careers-hooli.icims.com/jobs/1234/job", "icims"),
+    ("https://ats.rippling.com/hooli/jobs/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "rippling"),
     ("https://abcd.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/123", "oracle"),
     ("https://abcd.fa.oraclecloud.com.evil.example/hcmUI/CandidateExperience/en/sites/CX_1/job/1", "other"),
     ("https://www.oraclecloud.com/careers", "other"),
@@ -213,3 +216,22 @@ def test_chrome_fallback_skipped_when_complete_and_survives_errors(monkeypatch):
 
     d = ats.fetch_details("https://globex.example/job/1", render=chrome_missing)
     assert d == JobDetails() and d.company_guess == "Hooli"
+
+
+RIPPLING_URL = "https://ats.rippling.com/hooli/jobs/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/apply"
+RIPPLING_DATA = {"props": {"pageProps": {"apiData": {
+    "jobBoard": {"slug": "hooli", "companyName": "Hooli "},
+    "jobPost": {"name": "Network Engineer ", "companyName": "Hooli ",
+                "createdOn": "2026-10-15T07:54:57.425000-07:00"}}}}}
+RIPPLING_PAGE = ('<meta property="og:site_name" content="Rippling Recruiting"/>'
+                 f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(RIPPLING_DATA)}</script>')
+
+
+def test_rippling_reads_next_data(monkeypatch):
+    assert rippling.parse_url(RIPPLING_URL) == ("hooli", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+    fetched = []
+    monkeypatch.setattr(rippling, "get_text", lambda url: fetched.append(url) or RIPPLING_PAGE)
+    assert ats.fetch_details(RIPPLING_URL) == JobDetails("Hooli", "Network Engineer", date(2026, 10, 15))
+    assert fetched == ["https://ats.rippling.com/hooli/jobs/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]
+    assert rippling.parse_page("<html>no data</html>") == JobDetails()
+    assert rippling.parse_page('<script id="__NEXT_DATA__">{"props": {}}</script>') == JobDetails()

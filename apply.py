@@ -20,7 +20,7 @@ import yaml
 import ats
 import sheet_tracker
 import tracker
-from ats import browser, greenhouse
+from ats import browser, greenhouse, sites
 from sheet_tracker import SheetMismatch, SheetUnavailable
 
 HERE = Path(__file__).resolve().parent
@@ -28,6 +28,7 @@ DEFAULT_TRACKER = HERE / "Job Application Tracker.xlsx"
 DEFAULT_CONFIG = HERE / "config.yaml"
 DEFAULT_PROFILE = HERE / "profile.yaml"
 DEFAULT_ANSWERS = HERE / "answers.yaml"
+DEFAULT_COMPANIES = HERE / "companies.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
@@ -181,6 +182,22 @@ def open_form(filler, url: str, args, input_fn):
     return session
 
 
+def get_company(details: ats.JobDetails, url: str, system: str, companies: Path, input_fn) -> str:
+    """Read from the job > the name I gave this site before > ask me (and remember it for the site)."""
+    if details.company:
+        return details.company
+    key = sites.site_key(url, system)
+    known = sites.load(companies).get(key) if key else None
+    if known:
+        print(f"  Company from {companies.name}: {known}")
+        return known
+    company = ask_required("Company", input_fn, details.company_guess or sites.name_from_link(url, system))
+    if key:
+        sites.remember(companies, key, company)
+        print(f"  Saved: {key} = {company} (in {companies.name}; links from this site won't ask again)")
+    return company
+
+
 def read_details(url: str) -> ats.JobDetails:
     """Job APIs and the page's JSON-LD; Chrome (my saved logins) only for what is still missing."""
     return ats.fetch_details(url, render=functools.partial(browser.render_page, user_data_dir=BROWSER_PROFILE))
@@ -196,6 +213,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     parser.add_argument("--no-fill", action="store_true", help="don't open or fill the form")
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     parser.add_argument("--answers", type=Path, default=DEFAULT_ANSWERS)
+    parser.add_argument("--companies", type=Path, default=DEFAULT_COMPANIES)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args(argv)
     today = today or date.today()
@@ -231,7 +249,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
 
     print("Reading job details...")
     details = fetch(url)
-    company = details.company or ask_required("Company", input_fn, details.company_guess)
+    company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 

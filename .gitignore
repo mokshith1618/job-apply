@@ -1,6 +1,7 @@
 # Personal data: keep out of git and GitHub
 profile.yaml
 answers.yaml
+companies.yaml
 *.xlsx
 *.pdf
 backups/
