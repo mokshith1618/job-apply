@@ -5,7 +5,7 @@ That page has JobPosting JSON-LD (confirmed 2026-10-15): title, hiringOrganizati
 """
 from __future__ import annotations
 
-from urllib.parse import urlunsplit, urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .common import JobDetails, get_text
 from .generic import parse_jsonld

@@ -1,11 +1,10 @@
 """ATS detection and parsers, using payload shapes confirmed against the live APIs (no network here)."""
+import json
 from datetime import date, datetime
 
 import pytest
 
 import ats
-import json
-
 from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling
 from ats.common import JobDetails
 
