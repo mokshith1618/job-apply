@@ -221,6 +221,15 @@ def load_pending(pending_path) -> list[TrackerRow]:
     return [TrackerRow.from_json(d) for d in json.loads(p.read_text(encoding="utf-8"))]
 
 
+def pending_duplicates(pending_path, url: str | None = None, company: str | None = None,
+                       position: str | None = None) -> list[tuple[str, list]]:
+    """Rows still waiting in a pending file that match. -> [(file name, A..F values)]"""
+    name = Path(pending_path).name
+    rows = [(name, [r.company, r.position, r.url, r.posted, r.applied_on, "Applied"], [r.url])
+            for r in load_pending(pending_path)]
+    return match_rows(rows, url=url, company=company, position=position)
+
+
 def _write_pending(pending_path, rows: list[TrackerRow]) -> None:
     p = Path(pending_path)
     if rows:

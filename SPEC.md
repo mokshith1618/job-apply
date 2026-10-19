@@ -113,8 +113,9 @@ no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rul
 2. **Print the card** immediately, before any question to me (company name, posted date)
    and before opening the browser.
 3. **Duplicate check** (read only, Google Sheet or the Excel file as in Flow step 2): the
-   link, and company + position when the job gave both. Matching rows print under the card;
-   otherwise `Tracker: no matching link or job found.`
+   link, and company + position when the job gave both. Rows still waiting in that tracker's
+   pending file count too (pending files are written only after I say yes). Matching rows
+   print under the card; otherwise `Tracker: no matching link or job found.`
 4. Ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes nothing.
 5. Only then: missing-detail questions, form filling, tracker row.
 

@@ -56,35 +56,77 @@ def test_s_skips_without_writing(tracker_file):
     assert not (tracker_file.parent / "backups").exists()
 
 
-def test_duplicate_url_shows_old_row_and_stops(dup_tracker, capsys):
+class Recorder(Script):
+    """A Script that also keeps what was printed before each prompt."""
+
+    def __init__(self, capsys, *answers):
+        super().__init__(*answers)
+        self.capsys, self.printed = capsys, []
+
+    def __call__(self, prompt=""):
+        self.printed.append(self.capsys.readouterr().out)
+        return super().__call__(prompt)
+
+
+def test_duplicate_url_is_shown_with_the_card(dup_tracker, capsys):
     tracker_file = dup_tracker
     before = tracker_file.read_bytes()
 
-    script = Script("", "n")  # Enter at the card, then "n" at the duplicate question
-    assert run(tracker_file, DUP_URL + "?utm_source=Tsenta", script) == 1
-    assert script.prompts == [apply.APPLY_PROMPT, "Continue anyway? [y/N] "]
-    out = capsys.readouterr().out
-    assert f"row {KNOWN_ROW}" in out and KNOWN_COMPANY in out
-    assert out.index("Seniority:") < out.index(f"row {KNOWN_ROW}")  # the card comes before the duplicate check
+    script = Recorder(capsys, "s")  # the card shows the old row; "s" at the Apply prompt
+    assert run(tracker_file, DUP_URL + "?utm_source=Tsenta", script) == 0
+    assert script.prompts == [apply.APPLY_PROMPT]
+    out = script.printed[0]
+    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out
+    assert out.index("Posted:") < out.index("Already in the tracker:")  # right under the card
     assert tracker_file.read_bytes() == before
 
 
-def test_duplicate_url_continue_anyway(dup_tracker):
+def test_duplicate_url_apply_anyway_is_not_asked_twice(dup_tracker):
     tracker_file = dup_tracker
-    script = Script("", "y", "")
+    script = Script("", "")
     assert run(tracker_file, DUP_URL, script) == 0
+    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]  # no "Continue anyway?"
     assert cell(tracker_file, "C898") == DUP_URL
 
 
-def test_duplicate_company_position_asks(dup_tracker):
+def test_duplicate_company_position_from_the_job_is_shown_with_the_card(dup_tracker, capsys):
     tracker_file = dup_tracker
     def fetch_dup(url):
         return JobDetails(KNOWN_COMPANY, KNOWN_POSITION, date(2026, 6, 20))
 
     before = tracker_file.read_bytes()
-    script = Script("", "n")
-    assert run(tracker_file, "https://example.com/new-link", script, fetch=fetch_dup) == 1
+    script = Recorder(capsys, "s")
+    assert run(tracker_file, "https://example.com/new-link", script, fetch=fetch_dup) == 0
+    assert f"row {KNOWN_ROW}" in script.printed[0]
     assert tracker_file.read_bytes() == before
+
+
+def test_typed_company_position_matching_a_row_still_asks(dup_tracker, capsys):
+    tracker_file = dup_tracker
+    before = tracker_file.read_bytes()
+    script = Recorder(capsys, "", KNOWN_COMPANY, KNOWN_POSITION, "n")
+    assert run(tracker_file, "https://example.com/new-link", script,
+               fetch=lambda u: JobDetails(posted_date=date(2026, 6, 20))) == 1
+    assert script.prompts == [apply.APPLY_PROMPT, "Company: ", "Position: ", "Continue anyway? [y/N] "]
+    assert "Tracker: no matching link or job found." in script.printed[0]
+    assert f"row {KNOWN_ROW}" in script.printed[3]
+    assert tracker_file.read_bytes() == before
+
+
+def test_pending_row_counts_as_already_in_the_tracker(tracker_file, capsys):
+    tracker.save_pending(tracker.pending_path_for(tracker_file),
+                         tracker.TrackerRow("Acme Robotics", "Software Engineer I", NEW_URL, "Other", TODAY))
+    script = Recorder(capsys, "s")
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert "pending_rows.json: Acme Robotics" in script.printed[0]
+    assert len(tracker.load_pending(tracker.pending_path_for(tracker_file))) == 1  # skip: not flushed
+
+
+def test_missing_tracker_stops_before_the_apply_prompt(tmp_path, capsys):
+    script = Script()
+    assert run(tmp_path / "no-tracker.xlsx", NEW_URL, script) == 2
+    assert script.prompts == []
+    assert "Tracker not found" in capsys.readouterr().out
 
 
 def test_missing_details_are_asked(tracker_file):
@@ -177,6 +219,7 @@ def test_card_is_printed_before_any_prompt(tracker_file, capsys):
             "Citizenship:\n  not mentioned\n\n"
             "Seniority:\n  Title: Software Engineer I\n  3+ years of Python.\n\n"
             "Posted:\n  October ") in out and " days ago)" in out  # date shown in my time zone
+    assert out.rstrip().endswith("Tracker: no matching link or job found.")
 
 
 def test_skip_at_the_card_ends_the_run(tracker_file):
@@ -196,7 +239,20 @@ def test_check_prints_the_card_and_exits(tmp_path, capsys):
     assert script.prompts == []
     out = capsys.readouterr().out
     assert "Sponsorship:\n  We do not sponsor visas." in out
+    assert "Tracker not found" in out  # only a note with --check
     assert not missing.exists()
+
+
+def test_check_shows_the_duplicate_and_writes_nothing(dup_tracker, capsys):
+    before = dup_tracker.read_bytes()
+    tracker.save_pending(tracker.pending_path_for(dup_tracker),
+                         tracker.TrackerRow("Old Co", "Old Job", "https://old.example/1", "Other", TODAY))
+    script = Script()
+    assert run(dup_tracker, DUP_URL, script, extra=["--check"]) == 0
+    assert script.prompts == []
+    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in capsys.readouterr().out
+    assert dup_tracker.read_bytes() == before
+    assert tracker.load_pending(tracker.pending_path_for(dup_tracker))  # --check never flushes
 
 
 def test_card_without_a_description(tracker_file, capsys):

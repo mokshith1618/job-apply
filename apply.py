@@ -68,7 +68,8 @@ def show_duplicates(hits) -> None:
     for row, values in hits:
         company, position, url, posted, applied, outcome = values
         applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
-        print(f"  row {row}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
+        where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
+        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
 
 
 def load_config(path: Path) -> dict:
@@ -113,14 +114,17 @@ class Sheet:
         return sheet_tracker.append_row(self.ws, row, self.backup_dir)
 
     def find_duplicates(self, tracker_path: Path, **match) -> list:
-        """Check the Sheet; if it can't be reached, check the Excel file instead."""
+        """Check the Sheet; if it can't be reached, check the Excel file instead.
+        Rows still waiting in that tracker's pending file count too."""
         if self.ws is not None:
             try:
-                return sheet_tracker.find_duplicates(self.ws, **match)
+                return (sheet_tracker.find_duplicates(self.ws, **match)
+                        + tracker.pending_duplicates(self.pending, **match))
             except (SheetUnavailable, SheetMismatch) as exc:
                 self.failed(exc)
                 print(f"Checking duplicates in {tracker_path.name} instead.")
-        return tracker.find_duplicates(tracker_path, **match)
+        return (tracker.find_duplicates(tracker_path, **match)
+                + tracker.pending_duplicates(tracker.pending_path_for(tracker_path), **match))
 
     def write(self, row: tracker.TrackerRow) -> None:
         if not self.enabled:
@@ -239,22 +243,29 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     print(f"System: {system}")
     print("Reading job details...")
     details = fetch(url)
-    print(f"\n{job_facts.card(details, system, keywords, datetime.now().astimezone())}\n")
+    print(f"\n{job_facts.card(details, system, keywords, datetime.now().astimezone())}")
+
+    # The duplicate check goes with the card (read only); my answer at the Apply prompt covers it.
+    config = load_config(args.config)
+    tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
+                                          else DEFAULT_TRACKER)
+    if not tracker_path.exists():
+        print(f"\nTracker not found: {tracker_path}")
+        return 0 if args.check else 2
+    sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
+    hits = sheet.find_duplicates(tracker_path, url=url, company=details.company, position=details.position)
+    if hits:
+        show_duplicates(hits)
+    else:
+        print("\nTracker: no matching link or job found.")
+    print()
     if args.check:
         return 0
     if not wants_to_apply(input_fn):
         print("Skipped. Nothing written.")
         return 0
+    seen = {r for r, _ in hits}
 
-    config = load_config(args.config)
-    tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
-                                          else DEFAULT_TRACKER)
-
-    if not tracker_path.exists():
-        print(f"Tracker not found: {tracker_path}")
-        return 2
-
-    sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
     sheet.flush_pending()  # rows from a run where the Sheet couldn't be reached
 
     # Rows left over from a run where Excel had the file open.
@@ -264,24 +275,18 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     except tracker.TrackerLocked:
         print("Note: pending rows are still waiting; close Excel to write them.")
 
-    seen = set()
-    hits = sheet.find_duplicates(tracker_path, url=url)
-    if hits:
-        show_duplicates(hits)
-        if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
-            return 1
-        seen = {r for r, _ in hits}
-
     company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
-    hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
-            if h[0] not in seen]
-    if hits:
-        show_duplicates(hits)
-        if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
-            return 1
+    # A company or position I gave (not from the job) wasn't in the check above.
+    if (company, position) != (details.company, details.position):
+        hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
+                if h[0] not in seen]
+        if hits:
+            show_duplicates(hits)
+            if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
+                return 1
 
     row = tracker.TrackerRow(
         company=company,

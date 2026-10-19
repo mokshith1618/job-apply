@@ -218,10 +218,12 @@ def test_row_goes_to_sheet_and_excel(tracker_file, capsys):
     assert list((tracker_file.parent / "backups").glob("sheet-*.csv"))
 
 
-def test_duplicate_found_in_sheet_stops(tracker_file, capsys):
+def test_duplicate_found_in_sheet_is_shown_with_the_card(tracker_file, capsys):
     ws = sample_sheet()
     before = tracker_file.read_bytes()
-    assert run(tracker_file, ws, Script("", "n"), url=LINKED_URL) == 1
+    script = Script("s")
+    assert run(tracker_file, ws, script, url=LINKED_URL) == 0
+    assert script.prompts == [apply.APPLY_PROMPT]
     assert "row 3: Linked Co" in capsys.readouterr().out
     assert ws.updates == [] and tracker_file.read_bytes() == before
 
@@ -247,8 +249,14 @@ def test_sheet_down_at_write_keeps_row_pending_then_flushes(tracker_file, capsys
     assert excel(tracker_file, "A898") == "Acme Robotics"  # Excel still written
     assert "pending_sheet.json" in capsys.readouterr().out
 
-    ws.update = real_update  # back online: next run writes the pending row first
-    assert run(tracker_file, ws, Script("", "n"), url=NEW_URL + "9") == 1  # same company + position: duplicate
+    ws.update = real_update  # back online
+    assert run(tracker_file, ws, Script("s"), url=NEW_URL + "9") == 0
+    assert "pending_sheet.json: Acme Robotics" in capsys.readouterr().out  # same company + position, still waiting
+    assert ws.values[3][0] == "" and pending.exists()  # skipped at the card: nothing flushed
+
+    script = Script("", "s")  # yes at the card: the pending row is written first; not asked again
+    assert run(tracker_file, ws, script, url=NEW_URL + "9") == 0
+    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]
     assert ws.values[3][0] == "Acme Robotics" and not pending.exists()
     assert "Wrote pending row 4 to the Google Sheet" in capsys.readouterr().out
 
@@ -280,8 +288,8 @@ def test_config_sheet_unreachable_falls_back_to_excel(dup_tracker, tmp_path, mon
 
     monkeypatch.setattr(sheet_tracker, "open_sheet", unreachable)
     dup_url = KNOWN_URL
-    assert apply.main([dup_url, "--config", str(config)], input_fn=Script("", "n"),
-                      fetch=fetch_ok, today=TODAY) == 1  # duplicate found in the Excel file
+    assert apply.main([dup_url, "--config", str(config)], input_fn=Script("s"),
+                      fetch=fetch_ok, today=TODAY) == 0  # duplicate found in the Excel file
     out = capsys.readouterr().out
     assert "Google Sheet unavailable: offline" in out and f"row {KNOWN_ROW}" in out
 
