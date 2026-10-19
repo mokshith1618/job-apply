@@ -144,7 +144,10 @@ Rules for the text:
 ### Which sentences each section shows
 
 Split the description into sentences, and also treat each bullet point and line as its
-own unit, so a bullet is shown whole. Matching is case-insensitive, whole words.
+own unit, so a bullet is shown whole. Matching is whole words, exactly as listed
+(`sponsor` does not match `sponsorship`, so `matching.yaml` lists every form). It is
+case-insensitive, except that all-caps keywords (OPT, CPT, ITAR, H1B, BS, MS) match only
+in capitals, so "opt out" is not a sponsorship sentence.
 
 1. **Sponsorship:** sentences containing any of `keywords.sponsorship`
    (sponsor/sponsors/sponsorship/sponsoring, visa, H-1B, H1B, work authorization,

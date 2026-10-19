@@ -1,11 +1,13 @@
 # Settings for the "decision to apply" card. Edit freely.
 # Skills are from my resume. Synonyms count as the same skill.
 
-# Words that pull sentences into each line of the job facts card.
+# Words that pull sentences into each line of the job facts card. Whole words; list every
+# word form you want matched. ALL-CAPS entries (OPT, ITAR) match only in capitals.
 keywords:
-  sponsorship: [sponsor, visa, H-1B, H1B, work authorization, authorized to work,
+  sponsorship: [sponsor, sponsors, sponsorship, sponsoring, visa, H-1B, H1B,
+                work authorization, authorized to work,
                 employment authorization, OPT, CPT, immigration]
-  citizenship: [citizen, green card, permanent resident, clearance, TS/SCI, public trust,
+  citizenship: [citizen, citizens, citizenship, green card, permanent resident, clearance, TS/SCI, public trust,
                 ITAR, export control, U.S. person, US person]
   citizenship_ignore: [regardless of, without regard to, equal opportunity, protected veteran]
 
