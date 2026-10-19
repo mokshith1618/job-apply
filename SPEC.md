@@ -271,8 +271,9 @@ Every row is written to both: the Sheet first, then the local Excel file.
    fallback for JavaScript pages, company/position guesses offered as defaults, and
    `companies.yaml` (company name remembered per careers site). See Flow step 3.
 1d. **Job facts card:** the decision card printed right after I give a link, before any
-   prompt or browser. See "Job facts card" above. (Next.)
-3. **Ashby**, then **Lever**, using the same pattern.
+   prompt or browser. See "Job facts card" above. (Done 2026-10-19: 12 saved JDs in
+   `tests/fixtures/jd/`, checked on real Greenhouse, Ashby and Lever jobs.)
+3. **Ashby**, then **Lever**, using the same pattern. (Next.)
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;
    for the rest I use Claude in Chrome by hand.
