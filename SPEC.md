@@ -17,9 +17,16 @@ to my Excel tracker.
 
 ```
 python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
+python apply.py <job-url> --check      # print the job facts card and exit
 ```
 
 ## Flow
+
+0. **Job facts card first.** Right after I give the link: detect the system (step 1), read the
+   job details and description (step 3, without asking me anything yet), print the job facts
+   card (see below), then ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run
+   and writes nothing. Only after that: questions about missing details, the duplicate check,
+   the form and the tracker row.
 
 1. **Detect the system** from the URL:
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
@@ -74,6 +81,105 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
    `Review the form and click Submit yourself. Then press Enter = applied, s = skipped.`
 7. **Write the tracker row** only if I pressed Enter.
 
+## Job facts card (milestone 1d)
+
+When I give a link, apply.py first prints the parts of the job description I use to decide
+whether to apply. It shows them **exactly as written in the description**: no rewording,
+no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rules only, no AI.
+
+### Input
+
+- Job description text: Greenhouse `content` (HTML, unescape and strip tags), Ashby
+  `descriptionPlain`, Lever `descriptionPlain` + `lists`, other sites: JobPosting
+  JSON-LD `description` or the rendered page text. Confirm each field name when building.
+- Title and posted date: already read by `ats/` (`first_published`, `publishedAt`, `createdAt`).
+- Keyword lists: `matching.yaml` `keywords:`.
+
+### When it is shown
+
+**First thing after I give the link.** Order in apply.py:
+1. Detect system, read job details and description.
+2. **Print the card** immediately, before any question to me (company name, posted date,
+   duplicate check) and before opening the browser.
+3. Ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes nothing.
+4. Only then: missing-detail questions, duplicate check, form filling, tracker row.
+
+`--check` prints the card and exits, for looking at a link without applying.
+
+### Output
+
+```
+Acme · Software Engineer I · Greenhouse
+
+Sponsorship:
+  Acme is unable to sponsor employment visas now or in the future for this role.
+
+Citizenship:
+  This position requires U.S. citizenship due to government contract requirements.
+
+Seniority:
+  Title: Software Engineer I
+  2+ years of professional software development experience
+  Bachelor's degree in Computer Science or equivalent
+
+Posted:
+  2026-10-19T08:12:00-04:00 (6 hours ago)
+```
+
+Rules for the text:
+- **Verbatim.** Print each matched sentence or bullet exactly as it appears in the
+  description, after only these mechanical steps: HTML tags removed, HTML entities
+  decoded (`&amp;` to `&`), and runs of spaces/newlines inside the sentence collapsed
+  to one space. No other change: same words, punctuation, capitalization, order.
+- **Complete.** Never cut a sentence. Show every matching sentence, in the order they
+  appear in the description, with no limit.
+- **No duplicates within a section;** a sentence matching two sections appears in both.
+- One sentence per line, indented under the section name.
+- Nothing found: `not mentioned`. Description unreadable: `Description: not available`,
+  and the card still shows the title and posted date.
+- **Posted:** the date exactly as the job board returned it, then the age in
+  parentheses ("N hours ago" under a day, otherwise "N days ago"). Board gives no date:
+  `unknown`. For Lever's millisecond timestamp, show it as an ISO date-time.
+
+### Which sentences each section shows
+
+Split the description into sentences, and also treat each bullet point and line as its
+own unit, so a bullet is shown whole. Matching is case-insensitive, whole words.
+
+1. **Sponsorship:** sentences containing any of `keywords.sponsorship`
+   (sponsor/sponsors/sponsorship/sponsoring, visa, H-1B, H1B, work authorization,
+   authorized to work, employment authorization, OPT, CPT, immigration).
+2. **Citizenship:** sentences containing any of `keywords.citizenship`
+   (citizen/citizens/citizenship, green card, permanent resident, clearance, TS/SCI,
+   public trust, ITAR, export control, U.S. person, US person).
+   Leave out sentences containing any of `keywords.citizenship_ignore`
+   (regardless of, without regard to, equal opportunity, protected veteran), which are
+   equal-opportunity boilerplate.
+3. **Seniority:**
+   - The job title as the board gives it.
+   - Sentences with years of experience: "N+ years", "N-M years", "N to M years",
+     "at least N years", "minimum (of) N years", "N or more years", "N years".
+   - Sentences with a degree requirement: Bachelor, BS, B.S., Master, MS, M.S., PhD,
+     degree.
+4. **Posted:** see above.
+
+### Out of scope for 1d
+
+Match score, verdicts, job type, location, already-applied cooldown, H-1B and E-Verify
+lookups, saving the full JD text.
+
+### Done when
+
+- Tests with at least 10 saved JD fixtures (`tests/fixtures/jd/`) that assert the exact
+  printed text, including: several sponsorship wordings, an OPT/STEM OPT mention,
+  EEO boilerplate that must not appear under Citizenship, a clearance requirement,
+  years and degree sentences, a bullet-list JD (each bullet shown whole), a very long
+  sentence (shown in full), HTML entities, a JD with no mentions (`not mentioned`),
+  and posted dates (hours ago, days ago, Lever timestamp, unknown).
+- A test that each printed sentence appears word for word in the cleaned description.
+- Card shown for a real Greenhouse, Ashby and Lever job, before any prompt.
+- `ruff check .` and `pytest` pass.
+
 ## Tracker format (`Job Application Tracker.xlsx`)
 
 - Sheet `Sheet1`, Excel table `Table1` (currently `A1:I1000`), header on row 1.
@@ -125,6 +231,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | `profile.yaml` | my details (filled from resume; sensitive answers set by me) |
 | `answers.yaml` | saved answers to custom questions, grows over time |
 | `companies.yaml` | company name per careers site, saved the first time I type it |
+| `matching.yaml` | keyword lists for the job facts card (and my skills list, not used yet) |
 | `tracker_copy.xlsx` | copy of the tracker for manual experiments. Tests build their own fake tracker (`tests/fake_tracker.py`). |
 | `tests/` | pytest tests |
 
@@ -151,7 +258,9 @@ Every row is written to both: the Sheet first, then the local Excel file.
    iCIMS (iframe page), Oracle Cloud (recruiting API), Rippling (`__NEXT_DATA__`), the Chrome
    fallback for JavaScript pages, company/position guesses offered as defaults, and
    `companies.yaml` (company name remembered per careers site). See Flow step 3.
-3. **Ashby**, then **Lever**, using the same pattern. (Next.)
+1d. **Job facts card:** the decision card printed right after I give a link, before any
+   prompt or browser. See "Job facts card" above. (Next.)
+3. **Ashby**, then **Lever**, using the same pattern.
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;
    for the rest I use Claude in Chrome by hand.

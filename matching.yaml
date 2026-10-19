@@ -1,0 +1,52 @@
+# Settings for the "decision to apply" card. Edit freely.
+# Skills are from my resume. Synonyms count as the same skill.
+
+# Words that pull sentences into each line of the job facts card.
+keywords:
+  sponsorship: [sponsor, visa, H-1B, H1B, work authorization, authorized to work,
+                employment authorization, OPT, CPT, immigration]
+  citizenship: [citizen, green card, permanent resident, clearance, TS/SCI, public trust,
+                ITAR, export control, U.S. person, US person]
+  citizenship_ignore: [regardless of, without regard to, equal opportunity, protected veteran]
+
+skills:
+  Python: []
+  Java: []
+  Go: [Golang]
+  C: []
+  C++: [cpp]
+  JavaScript: [JS]
+  TypeScript: [TS]
+  React: [React.js, ReactJS]
+  Node.js: [Node, NodeJS]
+  Express.js: [Express]
+  Spring Boot: [Spring]
+  Maven: []
+  Redis: []
+  Django: []
+  Kubernetes: [k8s, EKS, GKE, AKS]
+  Docker: [containers, containerization]
+  AWS: [Amazon Web Services, EC2, S3, Lambda, RDS, IAM]
+  Jenkins: []
+  Prometheus: []
+  Grafana: []
+  Terraform: [IaC, Infrastructure as Code]
+  GitHub Actions: []
+  CI/CD: [continuous integration, continuous delivery, continuous deployment]
+  Kafka: [Apache Kafka]
+  Helm: []
+  OpenStack: []
+  Selenium: []
+  MySQL: []
+  PostgreSQL: [Postgres]
+  SQL: []
+  Pandas: []
+  PyTorch: []
+  Linux: [Unix, Bash, shell scripting]
+  Git: []
+  REST APIs: [REST, RESTful]
+  Microservices: []
+  gRPC: []
+  Agile: [Scrum, Jira]
+  Data Structures: [Algorithms]
+  Machine Learning: [ML]
