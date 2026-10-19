@@ -76,7 +76,7 @@ def test_duplicate_url_is_shown_with_the_card(dup_tracker, capsys):
     assert run(tracker_file, DUP_URL + "?utm_source=Tsenta", script) == 0
     assert script.prompts == [apply.APPLY_PROMPT]
     out = script.printed[0]
-    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out
+    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out and "None" not in out  # empty cells stay empty
     assert out.index("Posted:") < out.index("Already in the tracker:")  # right under the card
     assert tracker_file.read_bytes() == before
 

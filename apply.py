@@ -66,7 +66,7 @@ def ask_posted_date(input_fn, today: date) -> date | None:
 def show_duplicates(hits) -> None:
     print("\nAlready in the tracker:")
     for row, values in hits:
-        company, position, url, posted, applied, outcome = values
+        company, position, url, posted, applied, outcome = ("" if v is None else v for v in values)
         applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
         where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
         print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
