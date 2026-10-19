@@ -51,11 +51,14 @@ def test_card_matches_the_hand_written_card(name):
 def test_every_printed_sentence_is_word_for_word_from_the_description(name):
     details, system = details_for(name)
     cleaned = " ".join(details.description.split())
+    section = None
     for line in job_facts.card(details, system, KEYWORDS, NOW).split("\n"):
-        if not line.startswith("  ") or line.strip() in ("not mentioned", "unknown"):
+        if line.endswith(":") and not line.startswith(" "):
+            section = line
+        if not line.startswith("  ") or line.strip() == "not mentioned" or section == "Posted:":
             continue
         text = line[2:]
-        if text.startswith("Title: ") or text.startswith(details.posted_raw or "\0"):
+        if text.startswith("Title: "):
             continue
         assert text in cleaned
 
@@ -116,16 +119,20 @@ def test_not_seniority(sentence):
 
 
 @pytest.mark.parametrize("raw,shown", [
-    ("2026-10-19T08:00:00-04:00", "2026-10-19T08:00:00-04:00 (6 hours ago)"),
-    ("2026-10-19T13:30:00-04:00", "2026-10-19T13:30:00-04:00 (0 hours ago)"),
-    ("2026-10-19T13:00:00-04:00", "2026-10-19T13:00:00-04:00 (1 hour ago)"),
-    ("2026-10-18T14:30:00-04:00", "2026-10-18T14:30:00-04:00 (23 hours ago)"),
-    ("2026-10-18T14:00:00-04:00", "2026-10-18T14:00:00-04:00 (1 day ago)"),
-    ("2026-10-19T12:00:00Z", "2026-10-19T12:00:00Z (6 hours ago)"),
-    ("2026-10-19T10:00:00", "2026-10-19T10:00:00 (4 hours ago)"),  # no zone: my time zone
-    ("2026-10-17", "2026-10-17 (2 days ago)"),
-    ("2026-10-19", "2026-10-19 (0 days ago)"),
-    ("2026-10-20T08:00:00-04:00", "2026-10-20T08:00:00-04:00 (0 hours ago)"),  # clock skew: never negative
+    ("2026-10-19T08:00:00-04:00", "October 19, 2026, 8:00 AM (6 hours ago)"),
+    ("2026-10-19T13:30:00-04:00", "October 19, 2026, 1:30 PM (less than an hour ago)"),
+    ("2026-10-19T13:00:00-04:00", "October 19, 2026, 1:00 PM (1 hour ago)"),
+    ("2026-10-19T00:05:00-04:00", "October 19, 2026, 12:05 AM (13 hours ago)"),
+    ("2026-10-19T12:00:00-04:00", "October 19, 2026, 12:00 PM (2 hours ago)"),
+    ("2026-10-18T14:30:00-04:00", "October 18, 2026, 2:30 PM (23 hours ago)"),
+    ("2026-10-18T14:00:00-04:00", "October 18, 2026, 2:00 PM (1 day ago)"),
+    ("2026-10-19T12:00:00Z", "October 19, 2026, 8:00 AM (6 hours ago)"),  # shown in my time zone
+    ("2026-10-02T03:00:00.120+00:00", "October 1, 2026, 11:00 PM (17 days ago)"),
+    ("2026-10-19T10:00:00", "October 19, 2026, 10:00 AM (4 hours ago)"),  # no zone: my time zone
+    ("2026-10-17", "October 17, 2026 (2 days ago)"),
+    ("2026-10-18", "October 18, 2026 (1 day ago)"),
+    ("2026-10-19", "October 19, 2026 (today)"),
+    ("2026-10-20T08:00:00-04:00", "October 20, 2026, 8:00 AM (less than an hour ago)"),  # clock skew
     ("Posted 3 Days Ago", "Posted 3 Days Ago"),  # shown as written, no age
     (None, "unknown"),
 ])
@@ -133,9 +140,9 @@ def test_posted_line(raw, shown):
     assert job_facts.posted_line(raw, NOW) == shown
 
 
-def test_lever_timestamp_is_shown_as_iso_date_time():
+def test_lever_timestamp_is_shown_as_a_readable_date():
     d = lever.parse_api({"text": "Dev", "createdAt": 1791308667290})
-    assert job_facts.posted_line(d.posted_raw, NOW) == "2026-10-06T17:44:27+00:00 (13 days ago)"
+    assert job_facts.posted_line(d.posted_raw, NOW) == "October 6, 2026, 1:44 PM (13 days ago)"
 
 
 def test_description_not_available():

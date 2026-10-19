@@ -176,7 +176,7 @@ def test_card_is_printed_before_any_prompt(tracker_file, capsys):
             "Sponsorship:\n  We do not sponsor visas.\n\n"
             "Citizenship:\n  not mentioned\n\n"
             "Seniority:\n  Title: Software Engineer I\n  3+ years of Python.\n\n"
-            "Posted:\n  2026-10-08T09:00:00-04:00 (") in out
+            "Posted:\n  October ") in out and " days ago)" in out  # date shown in my time zone
 
 
 def test_skip_at_the_card_ends_the_run(tracker_file):

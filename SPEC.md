@@ -24,9 +24,9 @@ python apply.py <job-url> --check      # print the job facts card and exit
 
 0. **Job facts card first.** Right after I give the link: detect the system (step 1), read the
    job details and description (step 3, without asking me anything yet), print the job facts
-   card (see below), then ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run
-   and writes nothing. Only after that: questions about missing details, the duplicate check,
-   the form and the tracker row.
+   card (see below), run the duplicate check (step 2) and print its result under the card,
+   then ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes
+   nothing. Only after that: questions about missing details, the form and the tracker row.
 
 1. **Detect the system** from the URL:
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
@@ -38,8 +38,11 @@ python apply.py <job-url> --check      # print the job facts card and exit
    - Oracle Cloud: `*.oraclecloud.com` with `/CandidateExperience/` in the path
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
-   `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. If it
-   matches, show the old row and ask whether to continue.
+   `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
+   runs with the card: matching rows (or "no matching link or job found") print under it, and
+   my answer at `Apply to this job?` is the decision. If I type the company or position later
+   (the job didn't give them) and that pair matches another row, show it and ask
+   `Continue anyway? [y/N]`.
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
@@ -107,12 +110,16 @@ no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rul
 
 **First thing after I give the link.** Order in apply.py:
 1. Detect system, read job details and description.
-2. **Print the card** immediately, before any question to me (company name, posted date,
-   duplicate check) and before opening the browser.
-3. Ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes nothing.
-4. Only then: missing-detail questions, duplicate check, form filling, tracker row.
+2. **Print the card** immediately, before any question to me (company name, posted date)
+   and before opening the browser.
+3. **Duplicate check** (read only, Google Sheet or the Excel file as in Flow step 2): the
+   link, and company + position when the job gave both. Matching rows print under the card;
+   otherwise `Tracker: no matching link or job found.`
+4. Ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes nothing.
+5. Only then: missing-detail questions, form filling, tracker row.
 
-`--check` prints the card and exits, for looking at a link without applying.
+`--check` prints the card and the duplicate check and exits, for looking at a link without
+applying. A missing tracker file is only a note there.
 
 ### Output
 
@@ -131,7 +138,11 @@ Seniority:
   Bachelor's degree in Computer Science or equivalent
 
 Posted:
-  2026-10-19T08:12:00-04:00 (6 hours ago)
+  October 19, 2026, 8:12 AM (6 hours ago)
+
+Already in the tracker:
+  row 412: Acme | Software Engineer I | Posted October 2, 2026-LinkedIn | 10/03/2026 | Rejected
+           https://job-boards.greenhouse.io/acme/jobs/1234567
 ```
 
 Rules for the text:
@@ -145,9 +156,11 @@ Rules for the text:
 - One sentence per line, indented under the section name.
 - Nothing found: `not mentioned`. Description unreadable: `Description: not available`,
   and the card still shows the title and posted date.
-- **Posted:** the date exactly as the job board returned it, then the age in
-  parentheses ("N hours ago" under a day, otherwise "N days ago"). Board gives no date:
-  `unknown`. For Lever's millisecond timestamp, show it as an ISO date-time.
+- **Posted:** a readable date in my local time zone, then the age in parentheses:
+  `October 8, 2026, 9:00 AM (11 days ago)`. Under a day: "N hours ago" ("less than an hour
+  ago" under an hour). A date without a time: `October 8, 2026 (11 days ago)`, or `(today)`.
+  A value that can't be read as a date is shown as the board gave it. No date: `unknown`.
+  (The verbatim rule is for description sentences, not the date.)
 
 ### Which sentences each section shows
 

@@ -27,7 +27,7 @@ Seniority:
   2+ years of professional software development experience
 
 Posted:
-  2026-10-13T08:12:00-04:00 (6 hours ago)
+  October 13, 2026, 8:12 AM (6 hours ago)
 
 Apply to this job? [Enter = yes, s = skip]
 

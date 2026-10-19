@@ -112,28 +112,36 @@ def _ago(n: int, unit: str) -> str:
     return f"{n} {unit}{'' if n == 1 else 's'} ago"
 
 
-def _age(raw: str, now: datetime) -> str | None:
+def _day(d: date) -> str:
+    return f"{d:%B} {d.day}, {d.year}"  # October 8, 2026
+
+
+def _readable(raw: str, now: datetime) -> str | None:
+    """'October 8, 2026, 9:00 AM (11 days ago)' in my time zone; None if raw isn't an ISO date."""
     text = raw.strip()
     try:
         if len(text) == 10:
-            return _ago(max(0, (now.date() - date.fromisoformat(text)).days), "day")
+            days = max(0, (now.date() - date.fromisoformat(text)).days)
+            return f"{_day(date.fromisoformat(text))} ({'today' if days == 0 else _ago(days, 'day')})"
         posted = datetime.fromisoformat(text)
     except ValueError:
         return None
-    if posted.tzinfo is None:
-        posted = posted.replace(tzinfo=now.tzinfo)
+    posted = posted.replace(tzinfo=now.tzinfo) if posted.tzinfo is None else posted.astimezone(now.tzinfo)
     seconds = max(0.0, (now - posted).total_seconds())
-    if seconds < 86400:
-        return _ago(int(seconds // 3600), "hour")
-    return _ago(int(seconds // 86400), "day")
+    if seconds < 3600:
+        age = "less than an hour ago"
+    elif seconds < 86400:
+        age = _ago(int(seconds // 3600), "hour")
+    else:
+        age = _ago(int(seconds // 86400), "day")
+    return f"{_day(posted)}, {posted.hour % 12 or 12}:{posted:%M} {posted:%p} ({age})"
 
 
 def posted_line(raw: str | None, now: datetime) -> str:
-    """The date exactly as the board returned it, then its age. `now` must carry a time zone."""
+    """The posted date, readable, then its age. `now` must carry a time zone (mine)."""
     if not raw:
         return "unknown"
-    age = _age(raw, now)
-    return f"{raw} ({age})" if age else raw
+    return _readable(raw, now) or raw
 
 
 def _section(name: str, lines: list[str]) -> str:
