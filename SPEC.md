@@ -236,6 +236,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 |---|---|
 | `apply.py` | entry point |
 | `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `rippling.py`, `icims.py`, `oracle.py`, `generic.py`, `browser.py` (page reading in Chrome) |
+| `job_facts.py` | the job facts card (sentence splitting, keyword matching, posted age) |
 | `tracker.py` | duplicate check and row writing (Excel) |
 | `sheet_tracker.py` | the same for the Google Sheet |
 | `config.yaml` | Sheet ID, tab, key path, local tracker path |

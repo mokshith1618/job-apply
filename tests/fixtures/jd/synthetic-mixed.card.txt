@@ -1,0 +1,22 @@
+Hooli · Backend Engineer (Go) · Greenhouse
+
+Sponsorship:
+  We welcome candidates on F-1 OPT, including STEM OPT extensions.
+  Applicants must be U.S. citizens or permanent residents; we do not sponsor visas.
+  We do not offer visa sponsorship.
+  Because our team supports customers in regulated industries across North America, Europe and Asia, and because many of those customers ask us to document where engineers work, which tools they use, how their access is reviewed, and what immigration or employment status changes could affect a long-running project, we ask every finalist to walk through their current situation with a recruiter, who will explain the review steps, answer questions about timing, and connect you with our people team if anything needs follow-up before an offer is made.
+
+Citizenship:
+  This role requires U.S. citizenship due to government contract requirements.
+  Candidates must be able to obtain a TS/SCI clearance.
+  Applicants must be U.S. citizens or permanent residents; we do not sponsor visas.
+
+Seniority:
+  Title: Backend Engineer (Go)
+  3 to 5 years of backend experience
+  At least 2 years with Kubernetes; a minimum of 3 years with Linux.
+  B.S. or M.S. in Computer Science, or a Ph.D. in a related field.
+  4 or more years of on-call experience.
+
+Posted:
+  2026-10-19T08:00:00-04:00 (6 hours ago)
