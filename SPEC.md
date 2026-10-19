@@ -72,6 +72,10 @@ python apply.py <job-url> --check      # print the job facts card and exit
    - Standard fields (name, email, phone, location, LinkedIn, GitHub, website,
      education, current company) from `profile.yaml`.
    - Resume upload from the path in `profile.yaml`.
+   - Free-text (text box) questions about my visa, immigration or work authorization
+     **status or type** ("What is your current visa status?") get
+     `work_authorization.visa_details` from `profile.yaml`. Missing = ask me. Dropdowns
+     keep their Yes/No rules; other sponsorship text questions still come to me.
    - Custom questions: match the question label (lowercased, punctuation stripped)
      against `answers.yaml`.
    - Unknown **required** field: highlight it in the page, print the label in the

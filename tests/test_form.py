@@ -118,6 +118,36 @@ def test_sensitive_rules_on_dropdowns(profile):
     assert (future.value, future.source) == ("Yes", "profile:work_authorization.requires_sponsorship_future")
 
 
+VISA_DETAILS = "I am on an F-1 visa with OPT (made up for tests)."
+
+
+def test_visa_status_text_questions_use_visa_details(tmp_path):
+    (tmp_path / "p.yaml").write_text(PROFILE_YAML.replace(
+        "  requires_sponsorship_future: Yes\n",
+        f"  requires_sponsorship_future: Yes\n  visa_details: \"{VISA_DETAILS}\"\n"), encoding="utf-8")
+    p = Profile.load(tmp_path / "p.yaml")
+    for label in ["What is your current visa status?",
+                  "Please describe your work authorization status in the U.S.",
+                  "What type of visa do you currently hold?",
+                  "Immigration status",
+                  "Work Authorisation Status"]:
+        for kind in (form.TEXT, form.TEXTAREA):
+            answer = resolve(p, label, kind)
+            assert answer is not None, (label, kind)
+            assert (answer.value, answer.source) == (VISA_DETAILS, "profile:work_authorization.visa_details")
+    # Dropdowns keep their own rules: the free-text answer is never one of the options.
+    assert resolve(p, "What is your current visa status?", form.SELECT, ["F-1", "H-1B", "Other"]) is None
+    assert resolve(p, "Are you legally authorized to work in the United States?", form.SELECT,
+                   YES_NO).value == "Yes"
+    # Text questions that aren't about my status still come to me.
+    assert resolve(p, "Explain your sponsorship needs", form.TEXTAREA) is None
+    assert resolve(p, "Will you require visa sponsorship?", form.TEXT) is None
+
+
+def test_visa_status_question_without_visa_details_is_asked(profile):
+    assert resolve(profile, "What is your current visa status?", form.TEXTAREA) is None
+
+
 def test_worked_here_before_and_graduation(tmp_path):
     (tmp_path / "p.yaml").write_text(PROFILE_YAML + "history:\n  worked_at_company_before: No\n", encoding="utf-8")
     p = Profile.load(tmp_path / "p.yaml")
