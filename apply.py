@@ -1,10 +1,12 @@
 """Job Apply Helper entry point.
 
     python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
+    python apply.py <job-url> --check      (print the job facts card and exit)
 
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
 Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
 Milestone 2: Greenhouse forms are filled from profile.yaml and answers.yaml before the pause.
+Milestone 1d: the job facts card is printed first, before any question, and I decide whether to go on.
 This script never submits anything. I submit the application myself.
 """
 from __future__ import annotations
@@ -12,12 +14,13 @@ from __future__ import annotations
 import argparse
 import functools
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
 
 import ats
+import job_facts
 import sheet_tracker
 import tracker
 from ats import browser, greenhouse, sites
@@ -29,8 +32,10 @@ DEFAULT_CONFIG = HERE / "config.yaml"
 DEFAULT_PROFILE = HERE / "profile.yaml"
 DEFAULT_ANSWERS = HERE / "answers.yaml"
 DEFAULT_COMPANIES = HERE / "companies.yaml"
+DEFAULT_MATCHING = HERE / "matching.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
+APPLY_PROMPT = "Apply to this job? [Enter = yes, s = skip] "
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
 
 
@@ -203,6 +208,13 @@ def read_details(url: str) -> ats.JobDetails:
     return ats.fetch_details(url, render=functools.partial(browser.render_page, user_data_dir=BROWSER_PROFILE))
 
 
+def wants_to_apply(input_fn) -> bool:
+    while True:
+        answer = input_fn(APPLY_PROMPT).strip().lower()
+        if answer in ("", "s"):
+            return answer == ""
+
+
 def main(argv=None, input_fn=input, fetch=read_details, today: date | None = None, sheet_ws=None,
          fill=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
@@ -211,13 +223,29 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
     parser.add_argument("--no-sheet", action="store_true", help="Excel only; skip the Google Sheet")
     parser.add_argument("--no-fill", action="store_true", help="don't open or fill the form")
+    parser.add_argument("--check", action="store_true", help="print the job facts card and exit")
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     parser.add_argument("--answers", type=Path, default=DEFAULT_ANSWERS)
     parser.add_argument("--companies", type=Path, default=DEFAULT_COMPANIES)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--matching", type=Path, default=DEFAULT_MATCHING)
     args = parser.parse_args(argv)
     today = today or date.today()
     url = args.url.strip()
+
+    # The job facts card comes first: before any question, the tracker or the browser.
+    keywords = job_facts.load_keywords(args.matching)
+    system = ats.detect_system(url)
+    print(f"System: {system}")
+    print("Reading job details...")
+    details = fetch(url)
+    print(f"\n{job_facts.card(details, system, keywords, datetime.now().astimezone())}\n")
+    if args.check:
+        return 0
+    if not wants_to_apply(input_fn):
+        print("Skipped. Nothing written.")
+        return 0
+
     config = load_config(args.config)
     tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
                                           else DEFAULT_TRACKER)
@@ -236,9 +264,6 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     except tracker.TrackerLocked:
         print("Note: pending rows are still waiting; close Excel to write them.")
 
-    system = ats.detect_system(url)
-    print(f"System: {system}")
-
     seen = set()
     hits = sheet.find_duplicates(tracker_path, url=url)
     if hits:
@@ -247,8 +272,6 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
             return 1
         seen = {r for r, _ in hits}
 
-    print("Reading job details...")
-    details = fetch(url)
     company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)

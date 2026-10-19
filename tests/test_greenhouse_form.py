@@ -227,9 +227,9 @@ def test_apply_fills_then_pauses_then_closes(tracker_file, profile_files, capsys
         return session
 
     before = tracker_file.read_bytes()
-    script = Script("s")
+    script = Script("", "s")
     assert run(tracker_file, profile_path, script, fill, ["--source", "LinkedIn"]) == 0
-    assert script.prompts == [apply.PAUSE_PROMPT]
+    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]
     assert calls[0][1]["source"] == "LinkedIn" and calls[0][1]["profile_path"] == profile_path
     assert session.closed
     out = capsys.readouterr().out
@@ -243,12 +243,12 @@ def test_apply_no_fill_and_filler_failure(tracker_file, profile_files, capsys):
     def must_not_run(url, **kw):
         raise AssertionError("--no-fill should skip the filler")
 
-    assert run(tracker_file, profile_path, Script("s"), must_not_run, ["--no-fill"]) == 0
+    assert run(tracker_file, profile_path, Script("", "s"), must_not_run, ["--no-fill"]) == 0
 
     def broken(url, **kw):
         raise RuntimeError("Chrome not found")
 
-    script = Script("s")
+    script = Script("", "s")
     assert run(tracker_file, profile_path, script, broken) == 0
-    assert script.prompts == [apply.PAUSE_PROMPT]  # still pauses so I can apply by hand
+    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]  # still pauses so I can apply by hand
     assert "Could not fill the form (RuntimeError: Chrome not found)" in capsys.readouterr().out

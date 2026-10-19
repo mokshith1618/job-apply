@@ -66,6 +66,17 @@ def no_real_browser(tmp_path, monkeypatch):
     monkeypatch.setattr(apply, "BROWSER_PROFILE", tmp_path / "no-browser-profile")
 
 
+@pytest.fixture(autouse=True)
+def test_keywords(tmp_path, monkeypatch):
+    """apply.main reads a made-up matching.yaml, not mine."""
+    import apply
+
+    path = tmp_path / "matching.yaml"
+    path.write_text("keywords:\n  sponsorship: [sponsor, visa, OPT]\n  citizenship: [citizen, clearance]\n"
+                    "  citizenship_ignore: [regardless of]\n", encoding="utf-8")
+    monkeypatch.setattr(apply, "DEFAULT_MATCHING", path)
+
+
 # A known job planted at row 199 of the fake tracker, for the duplicate tests.
 KNOWN_ROW = 199
 KNOWN_COMPANY = "Example Labs, Inc."
