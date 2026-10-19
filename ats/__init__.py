@@ -50,12 +50,12 @@ def fetch_details(url: str, render=None) -> JobDetails:
         details = FETCHERS[system](url)
     except Exception as exc:  # noqa: BLE001 - any failure just means "ask me"
         print(f"  Could not read {'job page' if system == 'other' else system + ' API'}: {exc}")
-    if not details.complete() and system != "other":
+    if not (details.complete() and details.description) and system != "other":
         try:
             details = details.merge(generic.fetch_details(url))
         except Exception as exc:  # noqa: BLE001
             print(f"  Could not read job page: {exc}")
-    if not details.complete() and render is not None:
+    if not (details.complete() and details.description) and render is not None:
         print("  Loading the page in Chrome to read the rest...")
         try:
             pages = render(url, ready=lambda pages: details.merge(generic.parse_pages(pages)).complete())

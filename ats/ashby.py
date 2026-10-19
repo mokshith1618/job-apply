@@ -1,7 +1,7 @@
 """Ashby: public Job Posting API.
 
 GET https://api.ashbyhq.com/posting-api/job-board/{org}  -> {"jobs": [...]}
-Fields used (confirmed 2026-10-13): id, title, publishedAt.
+Fields used (confirmed 2026-10-13): id, title, publishedAt; descriptionPlain (confirmed 2026-10-19).
 The API has no display company name; it comes from the job page's JSON-LD.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from .common import JobDetails, clean, get_json, parse_date
+from .common import JobDetails, clean, get_json, html_text, parse_date
 from .generic import fetch_details as fetch_jsonld
 
 API = "https://api.ashbyhq.com/posting-api/job-board/{org}"
@@ -26,6 +26,8 @@ def parse_api(data: dict, job_id: str) -> JobDetails:
             return JobDetails(
                 position=clean(job.get("title")),
                 posted_date=parse_date(job.get("publishedAt")),
+                description=html_text(job.get("descriptionPlain")),
+                posted_raw=clean(job.get("publishedAt")),
             )
     return JobDetails()
 

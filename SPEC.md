@@ -93,9 +93,13 @@ no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rul
 
 ### Input
 
-- Job description text: Greenhouse `content` (HTML, unescape and strip tags), Ashby
-  `descriptionPlain`, Lever `descriptionPlain` + `lists`, other sites: JobPosting
-  JSON-LD `description` or the rendered page text. Confirm each field name when building.
+- Job description text (field names confirmed 2026-10-19): Greenhouse `content` (escaped
+  HTML, unescape and strip tags), Ashby `descriptionPlain`, Lever `descriptionPlain` + `lists`
+  (heading + HTML items) + `additionalPlain` (where Lever boards often put the visa/citizen
+  lines), Oracle `OrganizationDescriptionStr`, `ExternalDescriptionStr`,
+  `ExternalResponsibilitiesStr`, `ExternalQualificationsStr`, `CorporateDescriptionStr`.
+  Other sites (iCIMS, Workday, any page): JobPosting JSON-LD `description`. Still no
+  description: the text of the page and its frames as Chrome renders it (Rippling too).
 - Title and posted date: already read by `ats/` (`first_published`, `publishedAt`, `createdAt`).
 - Keyword lists: `matching.yaml` `keywords:`.
 

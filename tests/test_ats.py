@@ -3,10 +3,11 @@ import json
 from datetime import date, datetime
 
 import pytest
+from jd import load_fixture
 
 import ats
 from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling
-from ats.common import JobDetails
+from ats.common import JobDetails, html_text
 
 
 @pytest.mark.parametrize("url,system", [
@@ -61,7 +62,8 @@ JSONLD_PAGE = """<html><head><title>x</title>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Wrong"}</script>
 <script type="application/ld+json">
 {"@context":"https://schema.org/","@type":"JobPosting","title":" Security Engineer, Cloud",
- "datePosted":"2026-04-07","hiringOrganization":{"@type":"Organization","name":"Globex"}}
+ "datePosted":"2026-04-07","hiringOrganization":{"@type":"Organization","name":"Globex"},
+ "description":"&lt;p&gt;We sponsor visas.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;3+ years of Go&lt;/li&gt;&lt;/ul&gt;"}
 </script></head></html>"""
 
 
@@ -234,3 +236,90 @@ def test_rippling_reads_next_data(monkeypatch):
     assert fetched == ["https://ats.rippling.com/hooli/jobs/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]
     assert rippling.parse_page("<html>no data</html>") == JobDetails()
     assert rippling.parse_page('<script id="__NEXT_DATA__">{"props": {}}</script>') == JobDetails()
+
+
+# --- Job description text and the posted date as the board wrote it (milestone 1d) ---
+
+def test_html_text_blocks_entities_and_scripts():
+    markup = ("<div><p>Tom &amp; Jerry&nbsp; <b>bold</b>\n text</p><ul><li>One</li><li>Two<br>Three</li></ul>"
+              "<script>var x = 1;</script><style>p {}</style></div>")
+    assert html_text(markup) == "Tom & Jerry bold text\nOne\nTwo\nThree"
+
+
+def test_html_text_escaped_html_and_plain_text():
+    assert html_text("&lt;p&gt;A &amp;amp; B&lt;/p&gt;&lt;p&gt;C&lt;/p&gt;") == "A & B\nC"
+    assert html_text("Line one\n\n  - bullet  two \r\nR&amp;D") == "Line one\n- bullet two\nR&D"
+    assert html_text(None) is None
+    assert html_text(" <p> </p> ") is None
+
+
+def lines(details):
+    return details.description.split("\n")
+
+
+def test_greenhouse_description_and_raw_date():
+    d = greenhouse.parse_api(load_fixture("gh-anthropic.json"))
+    assert d.posted_raw == "2026-04-14T06:00:34-04:00"
+    assert ("Visa sponsorship: We do sponsor visas! However, we aren't able to successfully sponsor visas for "
+            "every role and every candidate. But if we make you an offer, we will make every reasonable effort "
+            "to get you a visa, and we retain an immigration lawyer to help with this.") in lines(d)
+    assert "<" not in d.description and "&nbsp;" not in d.description
+
+
+def test_ashby_description_and_raw_date():
+    data = load_fixture("ashby-harvey.json")
+    d = ashby.parse_api(data, data["jobs"][0]["id"])
+    assert d.posted_raw == "2025-08-07T10:47:38.950+00:00"
+    assert ("- Work eligibility: Must have valid Canadian work rights; Harvey does not currently offer visa "
+            "sponsorship for this role") in lines(d)
+
+
+def test_lever_description_has_lists_and_additional_text():
+    d = lever.parse_api(load_fixture("lever-zoox.json"))
+    assert d.posted_raw == "2026-10-06T17:44:27+00:00"  # createdAt in ms, shown as an ISO date-time (UTC)
+    assert lines(d)[-7:] == [
+        "Qualifications",
+        "Masters degree in mechanical engineering, or related field",
+        "Experienced with FMVSS, USNCAP, IIHS, ECE, EU legal and consumer safety protocols",
+        "Extensive experience in virtual development in occupant safety CAE using LS-dyna",
+        "Extensive experience in SW tools, BetaCAE, Oasys, LS-Dyna, FE dummies, LS-Opt",
+        "Strong analytical and communication skills",
+        "Experience with basic Python coding",
+    ]
+    palantir = lever.parse_api(load_fixture("lever-palantir.json"))
+    assert palantir.posted_raw == "2026-08-11T17:38:11+00:00"
+    assert ("Palantir is particularly interested in applicants who have a current right to work in Singapore, "
+            "and we encourage Singapore citizens to apply.") in lines(palantir)  # from additionalPlain
+
+
+def test_jsonld_description_and_raw_date():
+    d = generic.parse_jsonld(JSONLD_PAGE)
+    assert (d.description, d.posted_raw) == ("We sponsor visas.\n3+ years of Go", "2026-04-07")
+
+
+def test_oracle_description_from_all_text_fields():
+    job = {"items": [{**ORACLE_JOB["items"][0],
+                      "OrganizationDescriptionStr": "Initech R&amp;D",
+                      "ExternalDescriptionStr": "<p>Build things.</p><ul><li>3+ years</li></ul>",
+                      "ExternalResponsibilitiesStr": None,
+                      "ExternalQualificationsStr": "",
+                      "CorporateDescriptionStr": "<p>We do not sponsor visas.</p>"}]}
+    d = oracle.parse_api(job)
+    assert d.description == "Initech R&D\nBuild things.\n3+ years\nWe do not sponsor visas."
+    assert d.posted_raw == "2026-10-15T20:43:44+00:00"
+
+
+def test_merge_keeps_description_and_raw_date():
+    a = JobDetails(position="Dev")
+    b = JobDetails(company="Acme", description="Text", posted_raw="2026-10-01")
+    m = a.merge(b)
+    assert (m.description, m.posted_raw) == ("Text", "2026-10-01")
+
+
+def test_chrome_reads_page_text_when_no_description(monkeypatch):
+    page = ('<script type="application/ld+json">{"@type":"JobPosting","title":"Dev","datePosted":"2026-10-01",'
+            '"hiringOrganization":{"name":"Hooli"}}</script>')
+    monkeypatch.setattr(generic, "get_text", lambda url: page)
+    rendered = page + "<main><h1>Dev</h1><p>We cannot sponsor visas.</p><script>x=1</script></main>"
+    d = ats.fetch_details("https://jobs.hooli.example/1", render=lambda url, ready: [rendered])
+    assert d.description == "Dev\nWe cannot sponsor visas."

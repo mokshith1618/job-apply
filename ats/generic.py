@@ -10,7 +10,7 @@ import json
 import re
 from html.parser import HTMLParser
 
-from .common import JobDetails, clean, get_text, parse_date
+from .common import JobDetails, clean, get_text, html_text, parse_date
 
 _LD_RE = re.compile(
     r"<script[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>", re.S | re.I
@@ -54,6 +54,8 @@ def parse_jsonld(page: str) -> JobDetails:
                 position=clean(posting.get("title")),
                 posted_date=parse_date(posting.get("datePosted")),
                 company_guess=tidy if tidy != company else None,
+                description=html_text(posting.get("description")),
+                posted_raw=clean(posting.get("datePosted")),
             )
     return JobDetails()
 
@@ -135,10 +137,13 @@ def parse_page(page: str) -> JobDetails:
 
 
 def parse_pages(pages: list[str]) -> JobDetails:
-    """A rendered page and its frames: JSON-LD from any of them, guesses from the main page only."""
+    """A rendered page and its frames: JSON-LD from any of them, guesses from the main page only.
+    With no JSON-LD description, the description is the text of the page and its frames."""
     details = JobDetails()
     for page in pages:
         details = details.merge(parse_jsonld(page))
+    if not details.description:
+        details.description = "\n".join(t for t in map(html_text, pages) if t) or None
     return details.merge(parse_hints(pages[0])) if pages else details
 
 
