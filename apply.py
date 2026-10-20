@@ -12,6 +12,7 @@ This script never submits anything. I submit the application myself.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import sys
 from datetime import date, datetime
@@ -243,7 +244,11 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     print(f"System: {system}")
     print("Reading job details...")
     details = fetch(url)
-    print(f"\n{job_facts.card(details, system, keywords, datetime.now().astimezone())}")
+    # The card and the duplicate check also use the company I gave for this site before (my answer, not a guess).
+    key = sites.site_key(url, system)
+    shown = details if details.company or not key else dataclasses.replace(
+        details, company=sites.load(args.companies).get(key))
+    print(f"\n{job_facts.card(shown, system, keywords, datetime.now().astimezone())}")
 
     # The duplicate check goes with the card (read only); my answer at the Apply prompt covers it.
     config = load_config(args.config)
@@ -253,7 +258,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         print(f"\nTracker not found: {tracker_path}")
         return 0 if args.check else 2
     sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
-    hits = sheet.find_duplicates(tracker_path, url=url, company=details.company, position=details.position)
+    hits = sheet.find_duplicates(tracker_path, url=url, company=shown.company, position=shown.position)
     if hits:
         show_duplicates(hits)
     else:
@@ -279,8 +284,8 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
-    # A company or position I gave (not from the job) wasn't in the check above.
-    if (company, position) != (details.company, details.position):
+    # A company or position I typed just now wasn't in the check above.
+    if (company, position) != (shown.company, shown.position):
         hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
                 if h[0] not in seen]
         if hits:

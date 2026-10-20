@@ -95,9 +95,13 @@ class _Tags(HTMLParser):
             self.h1 += data
 
 
+# A careers site's own default name, not an employer: Oracle's "Candidate Experience site", "Careers".
+_NOT_A_COMPANY_RE = re.compile(r"(?:candidate experience|careers?|jobs)(?:\s+(?:page|site))?", re.I)
+
+
 def _clean_company(value) -> str | None:
     value = clean(value)
-    if not value:
+    if not value or _NOT_A_COMPANY_RE.fullmatch(value):
         return None
     return clean(_COMPANY_NOISE_RE.sub("", value))
 

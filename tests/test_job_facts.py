@@ -154,10 +154,10 @@ def test_description_not_available():
         "Posted:\n  unknown")
 
 
-def test_missing_company_and_title_are_left_out_not_guessed():
+def test_missing_company_and_title_are_marked_unknown_not_guessed():
     d = JobDetails(company_guess="Hooli Jobs", position_guess="Dev", description="Nothing here.")
     text = job_facts.card(d, "workday", KEYWORDS, NOW)
-    assert text.split("\n")[0] == "Workday"
+    assert text.split("\n")[0] == "Company unknown · Workday"
     assert "  Title: unknown" in text and "Hooli" not in text
 
 

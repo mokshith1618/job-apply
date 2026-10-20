@@ -170,6 +170,12 @@ def test_hints_from_share_tags_title_and_h1():
     assert generic.parse_hints("<title>Jobs | Hooli Careers</title><h1>Careers</h1>").position_guess is None
 
 
+@pytest.mark.parametrize("site_name", ["Candidate Experience site", "Careers", "Jobs page"])
+def test_a_careers_site_default_name_is_not_a_company_guess(site_name):
+    page = f'<meta property="og:site_name" content="{site_name}"><h1>Software Engineer I</h1>'
+    assert generic.parse_hints(page).company_guess is None  # Oracle's default site name, e.g.
+
+
 @pytest.mark.parametrize("org,company,guess", [
     ("Hooli", "Hooli", None),
     ("JPMC Candidate Experience page", None, "JPMC"),  # Oracle site name

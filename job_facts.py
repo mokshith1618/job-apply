@@ -149,8 +149,9 @@ def _section(name: str, lines: list[str]) -> str:
 
 
 def card(details: JobDetails, system: str, keywords: Keywords, now: datetime) -> str:
-    """The card's text. A missing company or title is left out, never guessed."""
-    header = " · ".join(p for p in (details.company, details.position, SYSTEM_NAMES.get(system, system)) if p)
+    """The card's text. A missing company or title is marked unknown, never guessed."""
+    header = " · ".join(p for p in (details.company or "Company unknown", details.position,
+                                    SYSTEM_NAMES.get(system, system)) if p)
     title = f"Title: {details.position or 'unknown'}"
     blocks = [header]
     if details.description:

@@ -122,6 +122,28 @@ def test_pending_row_counts_as_already_in_the_tracker(tracker_file, capsys):
     assert len(tracker.load_pending(tracker.pending_path_for(tracker_file))) == 1  # skip: not flushed
 
 
+ORACLE_URL = "https://hcgn.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/job/49903"
+
+
+def no_company(url):
+    return JobDetails(None, KNOWN_POSITION, date(2026, 10, 19))
+
+
+def test_card_says_company_unknown(tracker_file, capsys):
+    script = Recorder(capsys, "s")
+    assert run(tracker_file, ORACLE_URL, script, fetch=no_company) == 0
+    assert f"\nCompany unknown · {KNOWN_POSITION} · Oracle Cloud\n" in script.printed[0]
+
+
+def test_card_uses_the_company_i_gave_for_the_site(dup_tracker, tmp_path, capsys):
+    (tmp_path / "companies.yaml").write_text(f"hcgn.fa.us2.oraclecloud.com: {KNOWN_COMPANY}\n", encoding="utf-8")
+    script = Recorder(capsys, "s")
+    assert run(dup_tracker, ORACLE_URL, script, fetch=no_company) == 0
+    out = script.printed[0]
+    assert f"\n{KNOWN_COMPANY} · {KNOWN_POSITION} · Oracle Cloud\n" in out
+    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out  # same company + position, found at the card
+
+
 def test_missing_tracker_stops_before_the_apply_prompt(tmp_path, capsys):
     script = Script()
     assert run(tmp_path / "no-tracker.xlsx", NEW_URL, script) == 2

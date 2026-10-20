@@ -157,6 +157,10 @@ Rules for the text:
 - One sentence per line, indented under the section name.
 - Nothing found: `not mentioned`. Description unreadable: `Description: not available`,
   and the card still shows the title and posted date.
+- **Company in the header:** from the job, else the name I gave this careers site in
+  `companies.yaml`, else `Company unknown`. Never a guess from page tags. The duplicate
+  check under the card uses the same company. A careers site's default name ("Candidate
+  Experience site", "Careers") is not offered as a company guess either.
 - **Posted:** a readable date in my local time zone, then the age in parentheses:
   `October 8, 2026, 9:00 AM (11 days ago)`. Under a day: "N hours ago" ("less than an hour
   ago" under an hour). A date without a time: `October 8, 2026 (11 days ago)`, or `(today)`.
