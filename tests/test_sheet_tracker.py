@@ -210,7 +210,7 @@ def excel(path, ref):
 
 def test_row_goes_to_sheet_and_excel(tracker_file, capsys):
     ws = sample_sheet()
-    assert run(tracker_file, ws, Script("", "")) == 0
+    assert run(tracker_file, ws, Script("")) == 0
     assert ws.values[3][0] == "Acme Robotics"
     assert excel(tracker_file, "A898") == "Acme Robotics"
     out = capsys.readouterr().out
@@ -223,7 +223,7 @@ def test_duplicate_found_in_sheet_is_shown_with_the_card(tracker_file, capsys):
     before = tracker_file.read_bytes()
     script = Script("s")
     assert run(tracker_file, ws, script, url=LINKED_URL) == 0
-    assert script.prompts == [apply.APPLY_PROMPT]
+    assert script.prompts == [apply.PAUSE_PROMPT]
     assert "row 3: Linked Co" in capsys.readouterr().out
     assert ws.updates == [] and tracker_file.read_bytes() == before
 
@@ -231,7 +231,7 @@ def test_duplicate_found_in_sheet_is_shown_with_the_card(tracker_file, capsys):
 def test_skip_writes_nowhere(tracker_file):
     ws = sample_sheet()
     before = tracker_file.read_bytes()
-    assert run(tracker_file, ws, Script("", "s")) == 0
+    assert run(tracker_file, ws, Script("s")) == 0
     assert ws.updates == [] and tracker_file.read_bytes() == before
 
 
@@ -243,7 +243,7 @@ def test_sheet_down_at_write_keeps_row_pending_then_flushes(tracker_file, capsys
         raise requests.exceptions.ConnectionError("offline")
 
     ws.update = offline
-    assert run(tracker_file, ws, Script("", "")) == 0
+    assert run(tracker_file, ws, Script("")) == 0
     pending = tracker_file.parent / "pending_sheet.json"
     assert [r.company for r in tracker.load_pending(pending)] == ["Acme Robotics"]
     assert excel(tracker_file, "A898") == "Acme Robotics"  # Excel still written
@@ -252,18 +252,18 @@ def test_sheet_down_at_write_keeps_row_pending_then_flushes(tracker_file, capsys
     ws.update = real_update  # back online
     assert run(tracker_file, ws, Script("s"), url=NEW_URL + "9") == 0
     assert "pending_sheet.json: Acme Robotics" in capsys.readouterr().out  # same company + position, still waiting
-    assert ws.values[3][0] == "" and pending.exists()  # skipped at the card: nothing flushed
+    assert ws.values[3][0] == "" and pending.exists()  # skipped: nothing flushed
 
-    script = Script("", "s")  # yes at the card: the pending row is written first; not asked again
+    script = Script("")  # applied: the waiting row is written first, then this one
     assert run(tracker_file, ws, script, url=NEW_URL + "9") == 0
-    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]
-    assert ws.values[3][0] == "Acme Robotics" and not pending.exists()
+    assert script.prompts == [apply.PAUSE_PROMPT]
+    assert ws.values[3][0] == "Acme Robotics" and ws.values[4][2] == NEW_URL + "9" and not pending.exists()
     assert "Wrote pending row 4 to the Google Sheet" in capsys.readouterr().out
 
 
 def test_wrong_sheet_keeps_row_pending(tracker_file):
     ws = FakeWorksheet([["Name", "Email"]])
-    assert run(tracker_file, ws, Script("", "")) == 0
+    assert run(tracker_file, ws, Script("")) == 0
     assert ws.updates == []
     assert tracker.load_pending(tracker_file.parent / "pending_sheet.json")
     assert excel(tracker_file, "A898") == "Acme Robotics"
@@ -271,7 +271,7 @@ def test_wrong_sheet_keeps_row_pending(tracker_file):
 
 def test_no_sheet_flag_is_excel_only(tracker_file):
     ws = sample_sheet()
-    assert run(tracker_file, ws, Script("", ""), extra=["--no-sheet"]) == 0
+    assert run(tracker_file, ws, Script(""), extra=["--no-sheet"]) == 0
     assert ws.updates == [] and len(ws.values) == 4
     assert excel(tracker_file, "A898") == "Acme Robotics"
     assert not (tracker_file.parent / "pending_sheet.json").exists()
@@ -293,13 +293,13 @@ def test_config_sheet_unreachable_falls_back_to_excel(dup_tracker, tmp_path, mon
     out = capsys.readouterr().out
     assert "Google Sheet unavailable: offline" in out and f"row {KNOWN_ROW}" in out
 
-    assert apply.main([NEW_URL, "--config", str(config)], input_fn=Script("", ""), fetch=fetch_ok, today=TODAY) == 0
+    assert apply.main([NEW_URL, "--config", str(config)], input_fn=Script(""), fetch=fetch_ok, today=TODAY) == 0
     assert excel(tracker_file, "A898") == "Acme Robotics"
     assert tracker.load_pending(tracker_file.parent / "pending_sheet.json")
 
 
 def test_no_config_is_excel_only(tracker_file):
-    assert apply.main([NEW_URL, "--tracker", str(tracker_file)], input_fn=Script("", ""),
+    assert apply.main([NEW_URL, "--tracker", str(tracker_file)], input_fn=Script(""),
                       fetch=fetch_ok, today=TODAY) == 0
     assert excel(tracker_file, "A898") == "Acme Robotics"
     assert not (tracker_file.parent / "pending_sheet.json").exists()

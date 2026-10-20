@@ -31,8 +31,6 @@ Posted:
 
 Tracker: no matching link or job found.
 
-Apply to this job? [Enter = yes, s = skip]
-
   Company:  Acme
   Position: Software Engineer
   Posted:   Posted October 13, 2026-LinkedIn
@@ -59,9 +57,10 @@ Added row 899 to Job Application Tracker.xlsx.
 1. **Detects the job system** from the URL: Greenhouse, Ashby, Lever, Workday, iCIMS, Oracle
    Cloud, Rippling, SmartRecruiters, UKG, ADP, Amazon, Workable, or other.
 2. **Checks for duplicates** by URL (ignoring tracking parameters like `utm_*` and `gh_src`)
-   and by company + position, right under the job facts card, before it asks whether to
-   apply. Rows still waiting in a pending file count too. If you type the company or position
-   yourself later and they match a row, it shows the row and asks before continuing.
+   and by company + position, right under the job facts card. Rows still waiting in a
+   pending file count too. If you type the company or position
+   yourself later and they match a row, it shows that row too. It never asks: your answer at
+   the end (Enter = applied, `s` = skipped) is the only question.
 3. **Reads job details** from each board's own public data (job APIs, or the job JSON in the
    page), else from a page's `JobPosting` JSON-LD, else from the page as Chrome shows it.
    Anything it can't find, it asks you in the terminal.
@@ -142,7 +141,8 @@ A company or title read from the job is shown as is. If the job doesn't give one
 shows the page's own tag marked `(from page)` (only a guess), else `Company unknown`.
 Under the card it says whether the link or the same company + position is already in the
 tracker (the Google Sheet, or the Excel file if the Sheet can't be reached). Then
-`Apply to this job? [Enter = yes, s = skip]`: skip ends the run and writes nothing.
+There is no question at the card: the only question is the last one (Enter = applied,
+`s` = skipped, which writes nothing).
 `--check` prints the card and the tracker result, then exits.
 
 ## Form filling

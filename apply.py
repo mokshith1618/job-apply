@@ -6,7 +6,7 @@
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
 Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
 Milestone 2: Greenhouse forms are filled from profile.yaml and answers.yaml before the pause.
-Milestone 1d: the job facts card is printed first, before any question, and I decide whether to go on.
+Milestone 1d: the job facts card and the duplicate check are printed first; the only question is the last one.
 This script never submits anything. I submit the application myself.
 """
 from __future__ import annotations
@@ -36,7 +36,6 @@ DEFAULT_COMPANIES = HERE / "companies.yaml"
 DEFAULT_MATCHING = HERE / "matching.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
-APPLY_PROMPT = "Apply to this job? [Enter = yes, s = skip] "
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
 
 
@@ -213,13 +212,6 @@ def read_details(url: str) -> ats.JobDetails:
     return ats.fetch_details(url, render=functools.partial(browser.render_page, user_data_dir=BROWSER_PROFILE))
 
 
-def wants_to_apply(input_fn) -> bool:
-    while True:
-        answer = input_fn(APPLY_PROMPT).strip().lower()
-        if answer in ("", "s"):
-            return answer == ""
-
-
 def main(argv=None, input_fn=input, fetch=read_details, today: date | None = None, sheet_ws=None,
          fill=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
@@ -250,7 +242,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         details, company=sites.load(args.companies).get(key))
     print(f"\n{job_facts.card(shown, system, keywords, datetime.now().astimezone())}")
 
-    # The duplicate check goes with the card (read only); my answer at the Apply prompt covers it.
+    # The duplicate check goes with the card (read only). It never asks: my one answer at the end decides.
     config = load_config(args.config)
     tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
                                           else DEFAULT_TRACKER)
@@ -268,32 +260,18 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     print()
     if args.check:
         return 0
-    if not wants_to_apply(input_fn):
-        print("Skipped. Nothing written.")
-        return 0
     seen = {r for r, _ in hits}
-
-    sheet.flush_pending()  # rows from a run where the Sheet couldn't be reached
-
-    # Rows left over from a run where Excel had the file open.
-    try:
-        for r, row in tracker.flush_pending(tracker_path):
-            print(f"Wrote pending row {r}: {row.company} - {row.position}")
-    except tracker.TrackerLocked:
-        print("Note: pending rows are still waiting; close Excel to write them.")
 
     company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
-    # A company or position I typed just now wasn't in the check above.
+    # A company or position I typed just now wasn't in the check above: show any match, don't ask.
     if (company, position) != checked:
         hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
                 if h[0] not in seen]
         if hits:
             show_duplicates(hits)
-            if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
-                return 1
 
     row = tracker.TrackerRow(
         company=company,
@@ -317,6 +295,13 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         if session is not None:
             session.close()
 
+    # Only now is anything written: rows left from earlier runs first, then this one.
+    sheet.flush_pending()  # rows from a run where the Sheet couldn't be reached
+    try:  # rows from a run where Excel had the file open
+        for r, old in tracker.flush_pending(tracker_path):
+            print(f"Wrote pending row {r}: {old.company} - {old.position}")
+    except tracker.TrackerLocked:
+        pass  # write_row below waits for Excel to close and writes them with this row
     sheet.write(row)
     r = write_row(tracker_path, row, input_fn)
     print(f"Added row {r} to {tracker_path.name}.")

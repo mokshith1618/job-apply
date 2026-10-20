@@ -24,9 +24,9 @@ python apply.py <job-url> --check      # print the job facts card and exit
 
 0. **Job facts card first.** Right after I give the link: detect the system (step 1), read the
    job details and description (step 3, without asking me anything yet), print the job facts
-   card (see below), run the duplicate check (step 2) and print its result under the card,
-   then ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes
-   nothing. Only after that: questions about missing details, the form and the tracker row.
+   card (see below), run the duplicate check (step 2) and print its result under the card.
+   Then straight on, with no question in between: missing details, the form, and the one
+   question at the end (step 6). There is only one "did I apply" question: the last one.
 
 1. **Detect the system** from the URL:
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
@@ -44,10 +44,9 @@ python apply.py <job-url> --check      # print the job facts card and exit
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
    `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
-   runs with the card: matching rows (or "no matching link or job found") print under it, and
-   my answer at `Apply to this job?` is the decision. If I type the company or position later
-   (the job didn't give them) and that pair matches another row, show it and ask
-   `Continue anyway? [y/N]`.
+   runs with the card: matching rows (or "no matching link or job found") print under it.
+   If I type the company or position later (the job didn't give them) and that pair matches
+   another row, show it too. Never a question: my answer at the end (step 6) is the decision.
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
@@ -130,10 +129,10 @@ no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rul
    and before opening the browser.
 3. **Duplicate check** (read only, Google Sheet or the Excel file as in Flow step 2): the
    link, and company + position when the job gave both. Rows still waiting in that tracker's
-   pending file count too (pending files are written only after I say yes). Matching rows
-   print under the card; otherwise `Tracker: no matching link or job found.`
-4. Ask `Apply to this job? [Enter = yes, s = skip]`. Skip ends the run and writes nothing.
-5. Only then: missing-detail questions, form filling, tracker row.
+   pending file count too (pending files are written only when I press Enter = applied).
+   Matching rows print under the card; otherwise `Tracker: no matching link or job found.`
+4. No question here. Then: missing-detail questions, form filling, and the single question
+   at the end (Enter = applied, s = skipped). `s` writes nothing.
 
 `--check` prints the card and the duplicate check and exits, for looking at a link without
 applying. A missing tracker file is only a note there.

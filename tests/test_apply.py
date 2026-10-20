@@ -39,9 +39,9 @@ def cell(path, ref):
 
 
 def test_enter_writes_row(tracker_file, capsys):
-    script = Script("", "")
+    script = Script("")
     assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
-    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]
+    assert script.prompts == [apply.PAUSE_PROMPT]  # the only question
     assert cell(tracker_file, "A898") == "Acme Robotics"
     assert cell(tracker_file, "D898") == "Posted October 8, 2026-LinkedIn"
     assert cell(tracker_file, "F898") == "Applied"
@@ -51,7 +51,7 @@ def test_enter_writes_row(tracker_file, capsys):
 
 def test_s_skips_without_writing(tracker_file):
     before = tracker_file.read_bytes()
-    assert run(tracker_file, NEW_URL, Script("", "s")) == 0
+    assert run(tracker_file, NEW_URL, Script("s")) == 0
     assert tracker_file.read_bytes() == before
     assert not (tracker_file.parent / "backups").exists()
 
@@ -72,20 +72,20 @@ def test_duplicate_url_is_shown_with_the_card(dup_tracker, capsys):
     tracker_file = dup_tracker
     before = tracker_file.read_bytes()
 
-    script = Recorder(capsys, "s")  # the card shows the old row; "s" at the Apply prompt
+    script = Recorder(capsys, "s")  # the card shows the old row; "s" at the one question
     assert run(tracker_file, DUP_URL + "?utm_source=Tsenta", script) == 0
-    assert script.prompts == [apply.APPLY_PROMPT]
+    assert script.prompts == [apply.PAUSE_PROMPT]
     out = script.printed[0]
     assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out and "None" not in out  # empty cells stay empty
     assert out.index("Posted:") < out.index("Already in the tracker:")  # right under the card
     assert tracker_file.read_bytes() == before
 
 
-def test_duplicate_url_apply_anyway_is_not_asked_twice(dup_tracker):
+def test_duplicate_url_is_not_a_question(dup_tracker):
     tracker_file = dup_tracker
-    script = Script("", "")
+    script = Script("")
     assert run(tracker_file, DUP_URL, script) == 0
-    assert script.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]  # no "Continue anyway?"
+    assert script.prompts == [apply.PAUSE_PROMPT]  # no "Continue anyway?": Enter = applied decides
     assert cell(tracker_file, "C898") == DUP_URL
 
 
@@ -101,15 +101,15 @@ def test_duplicate_company_position_from_the_job_is_shown_with_the_card(dup_trac
     assert tracker_file.read_bytes() == before
 
 
-def test_typed_company_position_matching_a_row_still_asks(dup_tracker, capsys):
+def test_typed_company_position_matching_a_row_is_shown_not_asked(dup_tracker, capsys):
     tracker_file = dup_tracker
     before = tracker_file.read_bytes()
-    script = Recorder(capsys, "", KNOWN_COMPANY, KNOWN_POSITION, "n")
+    script = Recorder(capsys, KNOWN_COMPANY, KNOWN_POSITION, "s")
     assert run(tracker_file, "https://example.com/new-link", script,
-               fetch=lambda u: JobDetails(posted_date=date(2026, 6, 20))) == 1
-    assert script.prompts == [apply.APPLY_PROMPT, "Company: ", "Position: ", "Continue anyway? [y/N] "]
+               fetch=lambda u: JobDetails(posted_date=date(2026, 6, 20))) == 0
+    assert script.prompts == ["Company: ", "Position: ", apply.PAUSE_PROMPT]
     assert "Tracker: no matching link or job found." in script.printed[0]
-    assert f"row {KNOWN_ROW}" in script.printed[3]
+    assert f"row {KNOWN_ROW}" in script.printed[2]  # shown before the one question
     assert tracker_file.read_bytes() == before
 
 
@@ -130,7 +130,7 @@ def no_company(url):
 
 
 def test_card_says_company_unknown(tracker_file, capsys):
-    script = Recorder(capsys, "s")
+    script = Recorder(capsys, "Citizens", "s")  # the company is asked after the card
     assert run(tracker_file, ORACLE_URL, script, fetch=no_company) == 0
     assert f"\nCompany unknown · {KNOWN_POSITION} · Oracle Cloud\n" in script.printed[0]
 
@@ -146,7 +146,7 @@ def test_card_uses_the_company_i_gave_for_the_site(dup_tracker, tmp_path, capsys
 
 def test_companies_yaml_beats_a_page_guess(tracker_file, tmp_path, capsys):
     (tmp_path / "companies.yaml").write_text("hcgn.fa.us2.oraclecloud.com: Citizens\n", encoding="utf-8")
-    script = Recorder(capsys, "s")
+    script = Recorder(capsys, "", "s")  # posted date unknown, then the one question
     guessed = JobDetails(position="Dev", company_guess="Citizens Careers Page")
     assert run(tracker_file, ORACLE_URL, script, fetch=lambda u: guessed) == 0
     assert "\nCitizens · Dev · Oracle Cloud\n" in script.printed[0]
@@ -155,7 +155,7 @@ def test_companies_yaml_beats_a_page_guess(tracker_file, tmp_path, capsys):
 def test_page_guesses_are_shown_and_checked_for_duplicates(dup_tracker, capsys):
     before = dup_tracker.read_bytes()
     guessed = JobDetails(company_guess=KNOWN_COMPANY, position_guess=KNOWN_POSITION)
-    script = Recorder(capsys, "s")
+    script = Recorder(capsys, "", "", "", "s")  # company, position, posted date, then the one question
     assert run(dup_tracker, "https://example.com/careers/42", script, fetch=lambda u: guessed) == 0
     out = script.printed[0]
     assert f"\n{KNOWN_COMPANY} (from page) · {KNOWN_POSITION} (from page) · Other site\n" in out
@@ -163,15 +163,15 @@ def test_page_guesses_are_shown_and_checked_for_duplicates(dup_tracker, capsys):
     assert dup_tracker.read_bytes() == before
 
 
-def test_accepted_guesses_are_not_asked_about_again(dup_tracker):
+def test_accepted_guesses_matching_a_row_are_not_shown_twice(dup_tracker, capsys):
     guessed = JobDetails(posted_date=date(2026, 10, 1), company_guess=KNOWN_COMPANY, position_guess=KNOWN_POSITION)
-    script = Script("", "", "", "")  # Apply, accept both guesses, then applied
+    script = Script("", "", "")  # accept both guesses, then applied
     assert run(dup_tracker, "https://example.com/careers/42", script, fetch=lambda u: guessed) == 0
-    assert "Continue anyway? [y/N] " not in script.prompts  # the row was already shown with the card
+    assert capsys.readouterr().out.count(f"row {KNOWN_ROW}:") == 1  # shown once, with the card
     assert cell(dup_tracker, "A898") == KNOWN_COMPANY
 
 
-def test_missing_tracker_stops_before_the_apply_prompt(tmp_path, capsys):
+def test_missing_tracker_stops_before_any_question(tmp_path, capsys):
     script = Script()
     assert run(tmp_path / "no-tracker.xlsx", NEW_URL, script) == 2
     assert script.prompts == []
@@ -179,10 +179,10 @@ def test_missing_tracker_stops_before_the_apply_prompt(tmp_path, capsys):
 
 
 def test_missing_details_are_asked(tracker_file):
-    script = Script("", "Beta Corp", "Backend Engineer", "today", "")
+    script = Script("Beta Corp", "Backend Engineer", "today", "")
     assert run(tracker_file, "https://example.com/job/9", script, fetch=lambda u: JobDetails(),
                extra=["--source", "Tsenta"]) == 0
-    assert script.prompts[:4] == [apply.APPLY_PROMPT, "Company: ", "Position: ",
+    assert script.prompts[:3] == ["Company: ", "Position: ",
                                   "Posted date (YYYY-MM-DD, 'today', or blank if unknown): "]
     assert cell(tracker_file, "A898") == "Beta Corp"
     assert cell(tracker_file, "D898") == "Posted today-Tsenta"
@@ -190,9 +190,9 @@ def test_missing_details_are_asked(tracker_file):
 
 def test_guesses_are_offered_not_used_silently(tracker_file):
     guessed = JobDetails(posted_date=date(2026, 10, 8), company_guess="Beta Corp", position_guess="Dev")
-    script = Script("", "", "Backend Engineer", "")  # Enter accepts the company guess; typing replaces the title
+    script = Script("", "Backend Engineer", "")  # Enter accepts the company guess; typing replaces the title
     assert run(tracker_file, "https://example.com/job/9", script, fetch=lambda u: guessed) == 0
-    assert script.prompts[1:3] == ["Company [Beta Corp] (Enter = use this): ", "Position [Dev] (Enter = use this): "]
+    assert script.prompts[0:2] == ["Company [Beta Corp] (Enter = use this): ", "Position [Dev] (Enter = use this): "]
     assert cell(tracker_file, "A898") == "Beta Corp"
     assert cell(tracker_file, "B898") == "Backend Engineer"
 
@@ -209,9 +209,9 @@ def test_excel_open_keeps_row_pending_until_closed(tracker_file, monkeypatch):
         return real_replace(src, dst)
 
     monkeypatch.setattr(tracker.os, "replace", replace_locked_once)
-    script = Script("", "", "")  # Enter at the card, Enter = applied, then Enter = retry after closing Excel
+    script = Script("", "")  # Enter = applied, then Enter = retry after closing Excel
     assert run(tracker_file, NEW_URL, script) == 0
-    assert "Close Excel" in script.prompts[2]
+    assert "Close Excel" in script.prompts[1]
     assert cell(tracker_file, "A898") == "Acme Robotics"
     assert not tracker.pending_path_for(tracker_file).exists()
 
@@ -219,7 +219,7 @@ def test_excel_open_keeps_row_pending_until_closed(tracker_file, monkeypatch):
 def test_leftover_pending_rows_are_written_first(tracker_file):
     tracker.save_pending(tracker.pending_path_for(tracker_file),
                          tracker.TrackerRow("Old Co", "Old Job", "https://old.example/1", "Other", TODAY))
-    assert run(tracker_file, NEW_URL, Script("", "")) == 0
+    assert run(tracker_file, NEW_URL, Script("")) == 0
     assert cell(tracker_file, "A898") == "Old Co"
     assert cell(tracker_file, "A899") == "Acme Robotics"
 
@@ -228,20 +228,20 @@ def test_leftover_pending_rows_are_written_first(tracker_file):
 def test_company_typed_once_is_remembered_for_the_site(tracker_file, tmp_path, capsys):
     url = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/Dev_JR1"
     no_company = lambda u: JobDetails(None, "Cloud Developer II", date(2026, 10, 8))  # noqa: E731
-    first = Script("", "Umbrella Corporation", "s")
+    first = Script("Umbrella Corporation", "s")
     assert run(tracker_file, url, first, fetch=no_company) == 0
-    assert first.prompts[1] == "Company [Umbrella] (Enter = use this): "  # suggested from the link
+    assert first.prompts[0] == "Company [Umbrella] (Enter = use this): "  # suggested from the link
     assert "Saved: umbrella.wd5.myworkdayjobs.com = Umbrella Corporation" in capsys.readouterr().out
 
-    second = Script("", "")  # only the card and pause prompts: the company isn't asked again
+    second = Script("")  # only the one question: the company isn't asked again
     assert run(tracker_file, url.replace("Dev_JR1", "Ops_JR2"), second, fetch=no_company) == 0
-    assert second.prompts == [apply.APPLY_PROMPT, apply.PAUSE_PROMPT]
+    assert second.prompts == [apply.PAUSE_PROMPT]
     assert cell(tracker_file, "A898") == "Umbrella Corporation"
 
 
 def test_company_from_job_data_is_not_overridden_or_saved(tracker_file, tmp_path):
     url = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/Dev_JR1"
-    assert run(tracker_file, url, Script("", "")) == 0  # fetch_ok has a company
+    assert run(tracker_file, url, Script("")) == 0  # fetch_ok has a company
     assert not (tmp_path / "companies.yaml").exists()
 
 
@@ -262,20 +262,20 @@ def test_card_is_printed_before_any_prompt(tracker_file, capsys):
     assert apply.main([NEW_URL, "--tracker", str(tracker_file)], input_fn=input_fn,
                       fetch=lambda u: CARD_JOB, today=TODAY) == 0
     [(prompt, out)] = asked
-    assert prompt == apply.APPLY_PROMPT
+    assert prompt == apply.PAUSE_PROMPT  # nothing is asked between the card and the end
     assert ("Acme Robotics · Software Engineer I · Greenhouse\n\n"
             "Sponsorship:\n  We do not sponsor visas.\n\n"
             "Citizenship:\n  not mentioned\n\n"
             "Seniority:\n  Title: Software Engineer I\n  3+ years of Python.\n\n"
             "Posted:\n  October ") in out and " days ago)" in out  # date shown in my time zone
-    assert out.rstrip().endswith("Tracker: no matching link or job found.")
+    assert out.index("Posted:") < out.index("Tracker: no matching link or job found.") < out.index("  URL:")
 
 
-def test_skip_at_the_card_ends_the_run(tracker_file):
+def test_skip_at_the_end_writes_nothing(tracker_file):
     before = tracker_file.read_bytes()
     script = Script("s")
     assert run(tracker_file, NEW_URL, script, fetch=lambda u: CARD_JOB) == 0
-    assert script.prompts == [apply.APPLY_PROMPT]  # nothing else asked, no form opened
+    assert script.prompts == [apply.PAUSE_PROMPT]
     assert tracker_file.read_bytes() == before
     assert not tracker.pending_path_for(tracker_file).exists()
 
