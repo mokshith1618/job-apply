@@ -120,7 +120,7 @@ python apply.py <job-url> --check
 
 | Option | Meaning |
 |---|---|
-| `--source` | where you found the job; goes into column D and answers "How did you hear about us?" |
+| `--source` | where you found the job; goes into column D and answers "How did you hear about us?". Any case works (`linkedin` → `LinkedIn`), a near-miss like `Linkdin` is fixed, and any other name (`Indeed`) is kept as typed |
 | `--tracker` | a different local Excel file |
 | `--no-sheet` | skip the Google Sheet for this run |
 | `--no-fill` | don't open or fill the form |

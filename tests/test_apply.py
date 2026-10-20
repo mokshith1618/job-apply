@@ -1,6 +1,7 @@
 """End-to-end apply.py runs on a fake tracker (tests/fake_tracker.py), with scripted terminal input."""
 from datetime import date
 
+import pytest
 from openpyxl import load_workbook
 
 import apply
@@ -47,6 +48,23 @@ def test_enter_writes_row(tracker_file, capsys):
     assert cell(tracker_file, "F898") == "Applied"
     assert "Added row 898" in capsys.readouterr().out
     assert not tracker.pending_path_for(tracker_file).exists()
+
+
+@pytest.mark.parametrize("typed,source", [
+    ("Linkedin", "LinkedIn"), ("linkedin", "LinkedIn"), ("LINKEDIN", "LinkedIn"), (" Linked In ", "LinkedIn"),
+    ("linked-in", "LinkedIn"), ("tsenta", "Tsenta"), ("other", "Other"), ("", "Other"),
+    ("Linkdin", "LinkedIn"), ("Tsneta", "Tsenta"),   # near-misses
+    ("Indeed", "Indeed"), ("Hiring Cafe", "Hiring Cafe"), ("Lever", "Lever"), ("Dice", "Dice"),  # kept as typed
+])
+def test_source_is_forgiving(typed, source):
+    assert apply.normalize_source(typed) == source
+
+
+@pytest.mark.parametrize("typed,column_d", [("linkedin", "Posted October 8, 2026-LinkedIn"),
+                                            ("Indeed", "Posted October 8, 2026-Indeed")])
+def test_source_as_typed_reaches_the_tracker(tracker_file, typed, column_d):
+    assert run(tracker_file, NEW_URL, Script(""), extra=["--source", typed]) == 0
+    assert cell(tracker_file, "D898") == column_d
 
 
 def test_s_skips_without_writing(tracker_file):

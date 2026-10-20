@@ -1,6 +1,6 @@
 """Job Apply Helper entry point.
 
-    python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
+    python apply.py <job-url> [--source LinkedIn|Tsenta|Other|any name] [--tracker PATH] [--no-sheet] [--no-fill]
     python apply.py <job-url> --check      (print the job facts card and exit)
 
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import difflib
 import functools
+import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -37,6 +39,26 @@ DEFAULT_MATCHING = HERE / "matching.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
+
+
+SOURCES = ("LinkedIn", "Tsenta", "Other")
+
+
+def normalize_source(value: str) -> str:
+    """--source: 'linkedin' / 'Linked In' -> 'LinkedIn', a near-miss like 'Linkdin' -> 'LinkedIn' (said aloud),
+    anything else ('Indeed') kept as typed. Empty -> 'Other'."""
+    typed = " ".join(value.split())
+    if not typed:
+        return "Other"
+    key = re.sub(r"[\s\-_.]", "", typed).lower()
+    known = {s.lower(): s for s in SOURCES}
+    if key in known:
+        return known[key]
+    close = difflib.get_close_matches(key, known, n=1, cutoff=0.8)
+    if close:
+        print(f"Source: {typed!r} read as {known[close[0]]}")
+        return known[close[0]]
+    return typed
 
 
 def ask_required(label: str, input_fn, suggestion: str | None = None) -> str:
@@ -216,7 +238,8 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
          fill=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
     parser.add_argument("url")
-    parser.add_argument("--source", choices=["LinkedIn", "Tsenta", "Other"], default="Other")
+    parser.add_argument("--source", type=normalize_source, default="Other",
+                        help="LinkedIn, Tsenta or Other (any case); any other name is kept as typed")
     parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
     parser.add_argument("--no-sheet", action="store_true", help="Excel only; skip the Google Sheet")
     parser.add_argument("--no-fill", action="store_true", help="don't open or fill the form")

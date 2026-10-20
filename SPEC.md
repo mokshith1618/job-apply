@@ -16,7 +16,7 @@ to my Excel tracker.
 ## Usage
 
 ```
-python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
+python apply.py <job-url> [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
 python apply.py <job-url> --check      # print the job facts card and exit
 ```
 
