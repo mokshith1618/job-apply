@@ -6,7 +6,7 @@ import pytest
 from jd import load_fixture
 
 import ats
-from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg
+from ats import adp, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg
 from ats.common import JobDetails, html_text
 
 
@@ -30,6 +30,8 @@ from ats.common import JobDetails, html_text
     ("https://eventus.rec.pro.ukg.net/eve1500evew/JobBoard/477175d5/OpportunityDetail?opportunityId=4327", "ukg"),
     ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/", "other"),  # the board, not a job
     ("https://ultipro.com.evil.example/T/JobBoard/B/OpportunityDetail?opportunityId=1", "other"),
+    ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a67e&jobId=568057", "adp"),
+    ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a67e", "other"),  # job list
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -395,3 +397,28 @@ def test_ukg_page(monkeypatch):
     assert d.description == "Build apps & sites.\nEqual Opportunity Employer\nKnow your rights. (See notice)"
     assert ukg.parse_page("<html>no job here</html>") == JobDetails()
     assert ukg.fetch_details("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/") == JobDetails()
+
+
+# ---------- ADP Workforce Now (milestone 1e) ----------
+
+ADP_URL = ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html"
+           "?cid=a67e64fb-ad7f-4857-9e34-38ede4751278&jobId=568057&lang=en_US&source=LinkedIn")
+
+
+def test_adp_api(monkeypatch):
+    calls = []
+
+    def fake_json(url):
+        calls.append(url)
+        return {"itemID": "9201293595925_1", "requisitionTitle": "Product Development Specialist",
+                "postDate": "2026-09-21T10:16:00.000-04:00",
+                "requisitionDescription": "<p>Note: start in May.</p><ul><li>Bachelor&#39;s degree</li></ul>"}
+
+    monkeypatch.setattr(adp, "get_json", fake_json)
+    d = adp.fetch_details(ADP_URL)
+    assert calls == ["https://workforcenow.adp.com/mascsr/default/careercenter/public/events/staffing/v1/"
+                     "job-requisitions/568057?cid=a67e64fb-ad7f-4857-9e34-38ede4751278&lang=en_US&locale=en_US"]
+    assert d == JobDetails(None, "Product Development Specialist", date(2026, 9, 21))  # no company in ADP's API
+    assert d.posted_raw == "2026-09-21T10:16:00.000-04:00"
+    assert d.description == "Note: start in May.\nBachelor's degree"
+    assert adp.parse_api({}) == JobDetails()  # a closed job comes back empty

@@ -21,6 +21,8 @@ WD = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/De
      "recruiting2.ultipro.com/des1004dfcu"),  # many employers share this host; the tenant is the employer
     ("https://eventus.rec.pro.ukg.net/eve1500evew/JobBoard/4771/OpportunityDetail?opportunityId=1", "ukg",
      "eventus.rec.pro.ukg.net/eve1500evew"),
+    ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=A67E&jobId=5", "adp",
+     "workforcenow.adp.com/a67e"),  # cid is the employer
     ("https://www.linkedin.com/jobs/view/123", "other", None),  # job boards list many companies
     ("https://boards.greenhouse.io/embed/job_app?token=1", "greenhouse", None),
 ])
