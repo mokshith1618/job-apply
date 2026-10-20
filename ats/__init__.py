@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlsplit
 
-from . import ashby, generic, greenhouse, icims, lever, oracle, rippling, workday
+from . import ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, workday
 from .common import JobDetails
 
 FETCHERS = {
@@ -14,6 +14,7 @@ FETCHERS = {
     "icims": icims.fetch_details,
     "oracle": oracle.fetch_details,
     "rippling": rippling.fetch_details,
+    "smartrecruiters": smartrecruiters.fetch_details,
     "other": generic.fetch_details,
 }
 
@@ -35,6 +36,8 @@ def detect_system(url: str) -> str:
         return "icims"
     if host.endswith(".oraclecloud.com") and "/candidateexperience/" in parts.path.lower():
         return "oracle"
+    if host in ("jobs.smartrecruiters.com", "careers.smartrecruiters.com"):
+        return "smartrecruiters"
     return "other"
 
 

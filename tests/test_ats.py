@@ -6,7 +6,7 @@ import pytest
 from jd import load_fixture
 
 import ats
-from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling
+from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters
 from ats.common import JobDetails, html_text
 
 
@@ -23,6 +23,9 @@ from ats.common import JobDetails, html_text
     ("https://abcd.fa.oraclecloud.com.evil.example/hcmUI/CandidateExperience/en/sites/CX_1/job/1", "other"),
     ("https://www.oraclecloud.com/careers", "other"),
     ("https://myworkdayjobs.com.evil.example/job", "other"),
+    ("https://jobs.smartrecruiters.com/Winsupply1/3743990016228326", "smartrecruiters"),
+    ("https://careers.smartrecruiters.com/Winsupply1/3743990016228326-software-developer", "smartrecruiters"),
+    ("https://jobs.smartrecruiters.com.evil.example/Winsupply1/1", "other"),
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -329,3 +332,36 @@ def test_chrome_reads_page_text_when_no_description(monkeypatch):
     rendered = page + "<main><h1>Dev</h1><p>We cannot sponsor visas.</p><script>x=1</script></main>"
     d = ats.fetch_details("https://jobs.hooli.example/1", render=lambda url, ready: [rendered])
     assert d.description == "Dev\nWe cannot sponsor visas."
+
+
+# ---------- SmartRecruiters (milestone 1e) ----------
+
+SR_URL = "https://jobs.smartrecruiters.com/Winsupply1/3743990016228326?trid=abc"
+
+
+def test_smartrecruiters_url():
+    assert smartrecruiters.parse_url(SR_URL) == ("Winsupply1", "3743990016228326")
+    assert smartrecruiters.parse_url("https://careers.smartrecruiters.com/Winsupply1/3743990016228326-software-dev") == (
+        "Winsupply1", "3743990016228326")
+    assert smartrecruiters.parse_url("https://careers.smartrecruiters.com/Winsupply1") == (None, None)
+
+
+def test_smartrecruiters_api(monkeypatch):
+    calls = []
+
+    def fake_json(url):
+        calls.append(url)
+        return {"name": "Software Developer", "releasedDate": "2026-10-19T15:46:05.691Z",
+                "company": {"name": "Winsupply", "identifier": "Winsupply1"},
+                "jobAd": {"sections": {
+                    "companyDescription": {"title": "Company Description", "text": "<p>We sell &amp; ship.</p>"},
+                    "jobDescription": {"title": "Job Description", "text": "<ul><li>Write Java.</li></ul>"},
+                    "qualifications": {"title": "Qualifications", "text": ""}}}}
+
+    monkeypatch.setattr(smartrecruiters, "get_json", fake_json)
+    d = smartrecruiters.fetch_details(SR_URL)
+    assert calls == ["https://api.smartrecruiters.com/v1/companies/Winsupply1/postings/3743990016228326"]
+    assert d == JobDetails("Winsupply", "Software Developer", date(2026, 10, 19))
+    assert d.posted_raw == "2026-10-19T15:46:05.691Z"
+    assert d.description == "Company Description\nWe sell & ship.\nJob Description\nWrite Java."
+    assert smartrecruiters.fetch_details("https://careers.smartrecruiters.com/Winsupply1") == JobDetails()

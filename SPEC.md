@@ -36,6 +36,11 @@ python apply.py <job-url> --check      # print the job facts card and exit
    - Workday: `*.myworkdayjobs.com`
    - iCIMS: `*.icims.com`
    - Oracle Cloud: `*.oraclecloud.com` with `/CandidateExperience/` in the path
+   - SmartRecruiters: `jobs.smartrecruiters.com` or `careers.smartrecruiters.com`, path `/{company}/{id}[-slug]`
+   - UKG: `recruiting*.ultipro.com` or `*.ukg.net`, path `/{tenant}/JobBoard/{board}/OpportunityDetail?opportunityId=`
+   - ADP: `workforcenow.adp.com` with `cid` and `jobId` parameters
+   - Amazon: `amazon.jobs`, path `/{lang}/jobs/{id}`
+   - Workable: `apply.workable.com`, path `/{account}/j/{shortcode}`
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
    `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
@@ -55,6 +60,17 @@ python apply.py <job-url> --check      # print the job facts card and exit
      → `items[0].Title`, `items[0].ExternalPostedStartDate`. No company in that API; use
      `SeoOrganizationName` from `recruitingCESites?onlyData=true&q=SiteNumber={site}` when set,
      else ask me.
+   - Milestone 1e boards (each field confirmed on a live job when its reader is built):
+     - SmartRecruiters: `api.smartrecruiters.com/v1/companies/{company}/postings/{id}` →
+       `name`, `company.name`, `releasedDate`, `jobAd.sections` (the description, in page order).
+     - UKG: the job page itself has `CandidateOpportunityDetail({...})` JSON → `Title`,
+       `PostedDate`, `Description`. No company: `companies.yaml` per host + tenant, else ask me.
+     - ADP: `workforcenow.adp.com/mascsr/default/careercenter/public/events/staffing/v1/job-requisitions/{jobId}?cid={cid}`.
+       Company per `cid` in `companies.yaml`, else ask me.
+     - Amazon: `amazon.jobs/en/search.json?job_id_icims[]={id}` → `title`, `posted_date`,
+       `company_name` (Amazon's unit code like ` - D48` removed), description and qualifications.
+     - Workable: `apply.workable.com/api/v1/widget/accounts/{account}?details=true` →
+       account `name` and the job with that shortcode.
    - Other sites: the page's `JobPosting` JSON-LD (`title`, `hiringOrganization`,
      `datePosted`) if present.
    - Still missing: load the page in Chrome (headless, `browser-profile/` so my logins apply),
@@ -158,8 +174,10 @@ Rules for the text:
 - Nothing found: `not mentioned`. Description unreadable: `Description: not available`,
   and the card still shows the title and posted date.
 - **Company in the header:** from the job, else the name I gave this careers site in
-  `companies.yaml`, else `Company unknown`. Never a guess from page tags. The duplicate
-  check under the card uses the same company. A careers site's default name ("Candidate
+  `companies.yaml`, else the page-tag guess marked `(from page)`, else `Company unknown`.
+  The title: from the job, else the page-tag guess marked `(from page)`, else `unknown`.
+  A guess is only shown; it reaches the tracker only if I accept it at the later question.
+  The duplicate check under the card uses the same company and title. A careers site's default name ("Candidate
   Experience site", "Careers") is not offered as a company guess either.
 - **Posted:** a readable date in my local time zone, then the age in parentheses:
   `October 8, 2026, 9:00 AM (11 days ago)`. Under a day: "N hours ago" ("less than an hour
@@ -291,6 +309,9 @@ Every row is written to both: the Sheet first, then the local Excel file.
 1d. **Job facts card:** the decision card printed right after I give a link, before any
    prompt or browser. See "Job facts card" above. (Done 2026-10-19: 12 saved JDs in
    `tests/fixtures/jd/`, checked on real Greenhouse, Ashby and Lever jobs.)
+1e. **More job boards** (job details and the card only, no form filling): SmartRecruiters,
+   UKG, ADP, Amazon, Workable (see Flow steps 1 and 3), and page-tag guesses shown on the
+   card, marked. Chosen from the links in my tracker that the earlier readers missed.
 3. **Ashby**, then **Lever**, using the same pattern. (Next.)
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;

@@ -15,6 +15,8 @@ WD = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/De
     ("https://boards.greenhouse.io/embed/job_app?for=acme&token=1", "greenhouse", "boards.greenhouse.io/acme"),
     ("https://jobs.lever.co/initech/aaaa/apply", "lever", "jobs.lever.co/initech"),
     ("https://ats.rippling.com/Hooli/jobs/aaaa", "rippling", "ats.rippling.com/hooli"),
+    ("https://jobs.smartrecruiters.com/Winsupply1/3743990016228326", "smartrecruiters",
+     "jobs.smartrecruiters.com/winsupply1"),
     ("https://www.linkedin.com/jobs/view/123", "other", None),  # job boards list many companies
     ("https://boards.greenhouse.io/embed/job_app?token=1", "greenhouse", None),
 ])
