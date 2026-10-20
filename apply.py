@@ -322,4 +322,6 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
 
 
 if __name__ == "__main__":
+    # Job text has characters like ● and ’; on Windows a pipe or file would otherwise be cp1252 and crash.
+    sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main())
