@@ -17,7 +17,7 @@ from ats.common import JobDetails
 
 SYSTEM_NAMES = {"greenhouse": "Greenhouse", "ashby": "Ashby", "lever": "Lever", "workday": "Workday",
                 "icims": "iCIMS", "oracle": "Oracle Cloud", "rippling": "Rippling",
-                "smartrecruiters": "SmartRecruiters", "ukg": "UKG", "adp": "ADP", "amazon": "Amazon", "workable": "Workable", "other": "Other site"}
+                "smartrecruiters": "SmartRecruiters", "ukg": "UKG", "adp": "ADP", "amazon": "Amazon", "workable": "Workable", "successfactors": "SAP SuccessFactors", "other": "Other site"}
 DEGREE_WORDS = ["Bachelor", "Bachelors", "BS", "B.S.", "Master", "Masters", "MS", "M.S.", "PhD", "Ph.D.",
                 "degree", "degrees"]
 # "2+ years", "3-5 years", "3 to 5 years", "at least 4 years", "minimum (of) 6 years", "5 or more years", "1 year"

@@ -6,7 +6,21 @@ import pytest
 from jd import load_fixture
 
 import ats
-from ats import adp, amazon, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg, workable
+from ats import (
+    adp,
+    amazon,
+    ashby,
+    generic,
+    greenhouse,
+    icims,
+    lever,
+    oracle,
+    rippling,
+    smartrecruiters,
+    successfactors,
+    ukg,
+    workable,
+)
 from ats.common import JobDetails, html_text
 
 
@@ -38,6 +52,10 @@ from ats.common import JobDetails, html_text
     ("https://apply.workable.com/codehunter/j/D1A0B33C26/", "workable"),
     ("https://apply.workable.com/codehunter/j/D1A0B33C26/apply", "workable"),
     ("https://apply.workable.com/j/D1A0B33C26", "other"),  # no account in the link: page reading only
+    ("https://career55.sapsf.eu/career?career_job_req_id=158104&career_ns=job_listing&company=HCLPRD", "successfactors"),
+    ("https://career4.successfactors.com/career?career_job_req_id=9&company=Acme", "successfactors"),
+    ("https://career55.sapsf.eu/career?company=HCLPRD&career_ns=job_listing_summary", "other"),  # the job list
+    ("https://sapsf.eu.evil.example/career?career_job_req_id=1", "other"),
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -493,3 +511,41 @@ def test_workable_keeps_job_when_account_call_fails(monkeypatch):
     monkeypatch.setattr(workable, "get_json", fake_json)
     d = workable.fetch_details("https://apply.workable.com/codehunter/j/F2E9A49E4A")
     assert d == JobDetails(None, "Account Executive", date(2026, 8, 12))
+
+
+# ---------- SAP SuccessFactors (milestone 1e) ----------
+
+SF_PAGE = """<html><body>
+<div tabindex="0" class="pagetitle">
+ <h1>Career Opportunities: Platform Engineer II (158104)</h1>
+</div>
+<input type="hidden" id="postedOnFastDate" value="1792423278000" />
+<div class="joqReqDescription" tabindex="0" role="note"><div class="externalPosting">
+ <div><h2>Job Summary</h2></div><div><p>Ship <b>GenAI</b> &amp; agents.</p></div>
+</div></div>
+<div class="email-a-friend">Apply Save Job Email Job to Friend</div>
+</body></html>"""
+
+
+def test_successfactors_page(monkeypatch):
+    url = "https://career55.sapsf.eu/career?career_job_req_id=158104&career_ns=job_listing&company=HCLPRD"
+    calls = []
+    monkeypatch.setattr(successfactors, "get_text", lambda u: calls.append(u) or SF_PAGE)
+    d = successfactors.fetch_details(url)
+    assert calls == [url]
+    assert d == JobDetails(None, "Platform Engineer II", date(2026, 10, 19))  # no company on the page
+    assert d.posted_raw == "2026-10-19T15:21:18+00:00"
+    assert d.description == "Job Summary\nShip GenAI & agents."  # the page's buttons are not part of it
+
+
+@pytest.mark.parametrize("h1,title", [
+    ("Career Opportunities: Platform Engineer II (158104)", "Platform Engineer II"),
+    ("Platform Engineer II (158104)", "Platform Engineer II"),
+    ("Career Opportunities: Lead, Data: Platform (7)", "Lead, Data: Platform"),
+])
+def test_successfactors_title(h1, title):
+    assert successfactors.parse_page(f"<h1>{h1}</h1>").position == title
+
+
+def test_successfactors_empty_page():
+    assert successfactors.parse_page("<html>Session expired</html>") == JobDetails()

@@ -17,7 +17,8 @@ SHARED_HOSTS = {"job-boards.greenhouse.io", "boards.greenhouse.io", "jobs.ashbyh
                 "ats.rippling.com", "jobs.smartrecruiters.com", "careers.smartrecruiters.com",
                 "apply.workable.com"}
 REMEMBERED_SYSTEMS = {"greenhouse", "ashby", "lever", "rippling", "workday", "icims", "oracle",
-                      "smartrecruiters", "ukg", "adp", "workable"}
+                      "smartrecruiters", "ukg", "adp", "workable",
+                      "successfactors"}
 
 
 def site_key(url: str, system: str) -> str | None:
@@ -35,6 +36,9 @@ def site_key(url: str, system: str) -> str | None:
         if not board and segments and segments[0] != "embed":
             board = segments[0]
         return f"{host}/{board.lower()}" if board else None
+    if system == "successfactors":  # one host serves many employers; company= is the employer
+        code = parse_qs(parts.query).get("company", [None])[0]
+        return f"{host}/{code.lower()}" if code else None
     if system == "adp":  # one host for every ADP employer; the cid is the employer
         cid = parse_qs(parts.query).get("cid", [None])[0]
         return f"{host}/{cid.lower()}" if cid else None

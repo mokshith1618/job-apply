@@ -55,7 +55,7 @@ Added row 899 to Job Application Tracker.xlsx.
 ## What it does
 
 1. **Detects the job system** from the URL: Greenhouse, Ashby, Lever, Workday, iCIMS, Oracle
-   Cloud, Rippling, SmartRecruiters, UKG, ADP, Amazon, Workable, or other.
+   Cloud, Rippling, SmartRecruiters, UKG, ADP, Amazon, Workable, SAP SuccessFactors, or other.
 2. **Checks for duplicates** by URL (ignoring tracking parameters like `utm_*` and `gh_src`)
    and by company + position, right under the job facts card. Rows still waiting in a
    pending file count too. If you type the company or position

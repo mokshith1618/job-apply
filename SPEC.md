@@ -41,6 +41,8 @@ python apply.py <job-url> --check      # print the job facts card and exit
    - ADP: `workforcenow.adp.com` with `cid` and `jobId` parameters
    - Amazon: `amazon.jobs`, path `/{lang}/jobs/{id}`
    - Workable: `apply.workable.com`, path `/{account}/j/{shortcode}`
+   - SAP SuccessFactors: `*.sapsf.com`, `*.sapsf.eu`, `*.successfactors.com`, `*.successfactors.eu`
+     with a `career_job_req_id` parameter
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
    `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
@@ -68,8 +70,12 @@ python apply.py <job-url> --check      # print the job facts card and exit
        Company per `cid` in `companies.yaml`, else ask me.
      - Amazon: `amazon.jobs/en/search.json?job_id_icims[]={id}` → `title`, `posted_date`,
        `company_name` (Amazon's unit code like ` - D48` removed), description and qualifications.
-     - Workable: `apply.workable.com/api/v1/widget/accounts/{account}?details=true` →
-       account `name` and the job with that shortcode.
+     - Workable: `apply.workable.com/api/v2/accounts/{account}/jobs/{shortcode}` (title,
+       published day, description, requirements, benefits) and `api/v1/accounts/{account}` (name).
+     - SAP SuccessFactors: the job page itself (plain download, confirmed 2026-10-19): the title in
+       `<h1>` ("Career Opportunities: {title} ({id})"), the posted time in the hidden input
+       `postedOnFastDate` (milliseconds), the description in `div.joqReqDescription`. No company:
+       `companies.yaml` per host + `company` parameter, else ask me.
    - Other sites: the page's `JobPosting` JSON-LD (`title`, `hiringOrganization`,
      `datePosted`) if present.
    - Still missing: load the page in Chrome (headless, `browser-profile/` so my logins apply),
@@ -309,7 +315,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
    prompt or browser. See "Job facts card" above. (Done 2026-10-19: 12 saved JDs in
    `tests/fixtures/jd/`, checked on real Greenhouse, Ashby and Lever jobs.)
 1e. **More job boards** (job details and the card only, no form filling): SmartRecruiters,
-   UKG, ADP, Amazon, Workable (see Flow steps 1 and 3), and page-tag guesses shown on the
+   UKG, ADP, Amazon, Workable, SAP SuccessFactors (see Flow steps 1 and 3), and page-tag guesses shown on the
    card, marked. Chosen from the links in my tracker that the earlier readers missed.
 3. **Ashby**, then **Lever**, using the same pattern. (Next.)
 4. **Workday** (account login per company: pause and let me log in).

@@ -14,6 +14,7 @@ from . import (
     oracle,
     rippling,
     smartrecruiters,
+    successfactors,
     ukg,
     workable,
     workday,
@@ -33,6 +34,7 @@ FETCHERS = {
     "adp": adp.fetch_details,
     "amazon": amazon.fetch_details,
     "workable": workable.fetch_details,
+    "successfactors": successfactors.fetch_details,
     "other": generic.fetch_details,
 }
 
@@ -64,6 +66,8 @@ def detect_system(url: str) -> str:
         return "amazon"
     if workable.parse_url(url)[0]:
         return "workable"
+    if successfactors.is_job_link(url):
+        return "successfactors"
     return "other"
 
 
