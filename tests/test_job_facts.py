@@ -5,7 +5,7 @@ import pytest
 from jd import JD_DIR, load_fixture
 
 import job_facts
-from ats import ashby, generic, greenhouse, lever, smartrecruiters
+from ats import ashby, generic, greenhouse, lever, smartrecruiters, ukg
 from ats.common import JobDetails
 
 # The lists in matching.yaml when these cards were written; tests don't read my real file.
@@ -21,6 +21,8 @@ NOW = datetime(2026, 10, 19, 14, 0, tzinfo=timezone(timedelta(hours=-4)))
 
 def details_for(name: str) -> tuple[JobDetails, str]:
     """Run a saved posting through its board's reader, as apply.py would."""
+    if name.startswith("ukg-"):
+        return ukg.parse_page((JD_DIR / name).read_text(encoding="utf-8")), "ukg"
     if name.endswith(".html"):
         return generic.parse_page((JD_DIR / name).read_text(encoding="utf-8")), "other"
     data = load_fixture(name)

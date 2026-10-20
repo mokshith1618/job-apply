@@ -16,7 +16,7 @@ import yaml
 SHARED_HOSTS = {"job-boards.greenhouse.io", "boards.greenhouse.io", "jobs.ashbyhq.com", "jobs.lever.co",
                 "ats.rippling.com", "jobs.smartrecruiters.com", "careers.smartrecruiters.com"}
 REMEMBERED_SYSTEMS = {"greenhouse", "ashby", "lever", "rippling", "workday", "icims", "oracle",
-                      "smartrecruiters"}
+                      "smartrecruiters", "ukg"}
 
 
 def site_key(url: str, system: str) -> str | None:
@@ -34,6 +34,9 @@ def site_key(url: str, system: str) -> str | None:
         if not board and segments and segments[0] != "embed":
             board = segments[0]
         return f"{host}/{board.lower()}" if board else None
+    if system == "ukg":  # one host serves many employers; the first path part is the employer
+        segments = [s for s in parts.path.split("/") if s]
+        return f"{host}/{segments[0].lower()}" if segments else None
     return host
 
 

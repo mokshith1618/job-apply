@@ -6,7 +6,7 @@ import pytest
 from jd import load_fixture
 
 import ats
-from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters
+from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg
 from ats.common import JobDetails, html_text
 
 
@@ -26,6 +26,10 @@ from ats.common import JobDetails, html_text
     ("https://jobs.smartrecruiters.com/Winsupply1/3743990016228326", "smartrecruiters"),
     ("https://careers.smartrecruiters.com/Winsupply1/3743990016228326-software-developer", "smartrecruiters"),
     ("https://jobs.smartrecruiters.com.evil.example/Winsupply1/1", "other"),
+    ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/OpportunityDetail?opportunityId=db7b", "ukg"),
+    ("https://eventus.rec.pro.ukg.net/eve1500evew/JobBoard/477175d5/OpportunityDetail?opportunityId=4327", "ukg"),
+    ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/", "other"),  # the board, not a job
+    ("https://ultipro.com.evil.example/T/JobBoard/B/OpportunityDetail?opportunityId=1", "other"),
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -365,3 +369,29 @@ def test_smartrecruiters_api(monkeypatch):
     assert d.posted_raw == "2026-10-19T15:46:05.691Z"
     assert d.description == "Company Description\nWe sell & ship.\nJob Description\nWrite Java."
     assert smartrecruiters.fetch_details("https://careers.smartrecruiters.com/Winsupply1") == JobDetails()
+
+
+# ---------- UKG / UltiPro (milestone 1e) ----------
+
+UKG_URL = ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d-f3b9-413c-9fb0-4bb23de1c403/"
+           "OpportunityDetail?opportunityId=db7b9339-25b3-4b67-a59f-f69ef00f6ae8&utm_source=linkedin&source=LinkedIn")
+UKG_PAGE = """<html><script>
+  $(function () {
+    var opportunity = new US.Opportunity.CandidateOpportunityDetail({"Id":"db7b","Title":"Web Developer II",
+      "PostedDate":"2026-09-15T15:40:32.649Z","Description":"<p>Build <b>apps</b> &amp; sites.</p>",
+      "EqualOpportunityEmployerDescription":"Equal Opportunity Employer<br>Know your rights. (See notice)"});
+  });
+</script></html>"""
+
+
+def test_ukg_page(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ukg, "get_text", lambda url: calls.append(url) or UKG_PAGE)
+    d = ukg.fetch_details(UKG_URL)
+    assert calls == ["https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d-f3b9-413c-9fb0-4bb23de1c403/"
+                     "OpportunityDetail?opportunityId=db7b9339-25b3-4b67-a59f-f69ef00f6ae8"]
+    assert d == JobDetails(None, "Web Developer II", date(2026, 9, 15))  # UKG has no company field
+    assert d.posted_raw == "2026-09-15T15:40:32.649Z"
+    assert d.description == "Build apps & sites.\nEqual Opportunity Employer\nKnow your rights. (See notice)"
+    assert ukg.parse_page("<html>no job here</html>") == JobDetails()
+    assert ukg.fetch_details("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/") == JobDetails()
