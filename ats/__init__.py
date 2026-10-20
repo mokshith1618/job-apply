@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlsplit
 
-from . import adp, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg, workday
+from . import adp, amazon, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg, workday
 from .common import JobDetails
 
 FETCHERS = {
@@ -17,6 +17,7 @@ FETCHERS = {
     "smartrecruiters": smartrecruiters.fetch_details,
     "ukg": ukg.fetch_details,
     "adp": adp.fetch_details,
+    "amazon": amazon.fetch_details,
     "other": generic.fetch_details,
 }
 
@@ -44,6 +45,8 @@ def detect_system(url: str) -> str:
         return "ukg"
     if adp.parse_url(url)[0]:
         return "adp"
+    if amazon.parse_url(url):
+        return "amazon"
     return "other"
 
 

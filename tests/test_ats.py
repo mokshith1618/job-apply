@@ -6,7 +6,7 @@ import pytest
 from jd import load_fixture
 
 import ats
-from ats import adp, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg
+from ats import adp, amazon, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg
 from ats.common import JobDetails, html_text
 
 
@@ -32,6 +32,9 @@ from ats.common import JobDetails, html_text
     ("https://ultipro.com.evil.example/T/JobBoard/B/OpportunityDetail?opportunityId=1", "other"),
     ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a67e&jobId=568057", "adp"),
     ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a67e", "other"),  # job list
+    ("https://www.amazon.jobs/en/jobs/3141336/software-engineer-i", "amazon"),
+    ("https://amazon.jobs/jobs/3141336", "amazon"),
+    ("https://www.amazon.jobs/en/teams/aws", "other"),
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -422,3 +425,38 @@ def test_adp_api(monkeypatch):
     assert d.posted_raw == "2026-09-21T10:16:00.000-04:00"
     assert d.description == "Note: start in May.\nBachelor's degree"
     assert adp.parse_api({}) == JobDetails()  # a closed job comes back empty
+
+
+# ---------- Amazon (milestone 1e) ----------
+
+def test_amazon_search_json(monkeypatch):
+    calls = []
+
+    def fake_json(url):
+        calls.append(url)
+        return {"hits": 1, "jobs": [{
+            "id_icims": "3141336", "title": "Software Engineer I", "company_name": "Twitch Interactive, Inc. - D48",
+            "posted_date": "December 11, 2025", "description": "About Us:<br/><br/>We stream.",
+            "basic_qualifications": "- 1+ years of Go<br/>- Bachelor's degree",
+            "preferred_qualifications": "- AWS"}]}
+
+    monkeypatch.setattr(amazon, "get_json", fake_json)
+    d = amazon.fetch_details("https://www.amazon.jobs/en/jobs/3141336/software-engineer-i?cmpid=abc")
+    assert calls == ["https://www.amazon.jobs/en/search.json?job_id_icims[]=3141336"]
+    assert d == JobDetails("Twitch Interactive, Inc.", "Software Engineer I", date(2025, 12, 11))
+    assert d.posted_raw == "2025-12-11"
+    assert d.description == "About Us:\nWe stream.\n- 1+ years of Go\n- Bachelor's degree\n- AWS"
+
+
+@pytest.mark.parametrize("data", [{"hits": 0, "jobs": []}, {"jobs": [{"id_icims": "999", "title": "Other job"}]}])
+def test_amazon_job_not_found(data):
+    assert amazon.parse_api(data, "3141336") == JobDetails()
+
+
+@pytest.mark.parametrize("name,company", [
+    ("Twitch Interactive, Inc. - D48", "Twitch Interactive, Inc."),
+    ("Amazon.com Services LLC", "Amazon.com Services LLC"),
+    ("Amazon Web Services, Inc. - A57", "Amazon Web Services, Inc."),
+])
+def test_amazon_company_unit_code_removed(name, company):
+    assert amazon.company_name(name) == company

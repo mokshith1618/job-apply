@@ -5,7 +5,7 @@ import pytest
 from jd import JD_DIR, load_fixture
 
 import job_facts
-from ats import adp, ashby, generic, greenhouse, lever, smartrecruiters, ukg
+from ats import adp, amazon, ashby, generic, greenhouse, lever, smartrecruiters, ukg
 from ats.common import JobDetails
 
 # The lists in matching.yaml when these cards were written; tests don't read my real file.
@@ -32,6 +32,8 @@ def details_for(name: str) -> tuple[JobDetails, str]:
         return lever.parse_api(data), "lever"
     if name.startswith("adp-"):
         return adp.parse_api(data), "adp"
+    if name.startswith("amazon-"):
+        return amazon.parse_api(data), "amazon"
     if name.startswith("sr-"):
         return smartrecruiters.parse_api(data), "smartrecruiters"
     return greenhouse.parse_api(data), "greenhouse"
