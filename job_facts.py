@@ -149,11 +149,17 @@ def _section(name: str, lines: list[str]) -> str:
     return f"{name}:\n" + "\n".join(f"  {line}" for line in lines or ["not mentioned"])
 
 
+def _from_page(guess: str | None) -> str | None:
+    return f"{guess} (from page)" if guess else None
+
+
 def card(details: JobDetails, system: str, keywords: Keywords, now: datetime) -> str:
-    """The card's text. A missing company or title is marked unknown, never guessed."""
-    header = " · ".join(p for p in (details.company or "Company unknown", details.position,
-                                    SYSTEM_NAMES.get(system, system)) if p)
-    title = f"Title: {details.position or 'unknown'}"
+    """The card's text. A company or title read from the job is shown as is; otherwise the page's
+    tag guess, marked "(from page)"; otherwise unknown."""
+    company = details.company or _from_page(details.company_guess) or "Company unknown"
+    position = details.position or _from_page(details.position_guess)
+    header = " · ".join(p for p in (company, position, SYSTEM_NAMES.get(system, system)) if p)
+    title = f"Title: {position or 'unknown'}"
     blocks = [header]
     if details.description:
         facts = find_facts(details.description, keywords)

@@ -258,7 +258,9 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         print(f"\nTracker not found: {tracker_path}")
         return 0 if args.check else 2
     sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
-    hits = sheet.find_duplicates(tracker_path, url=url, company=shown.company, position=shown.position)
+    # Page guesses count here too: this only reads, and a match is worth seeing before I decide.
+    checked = (shown.company or shown.company_guess, shown.position or shown.position_guess)
+    hits = sheet.find_duplicates(tracker_path, url=url, company=checked[0], position=checked[1])
     if hits:
         show_duplicates(hits)
     else:
@@ -285,7 +287,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
     # A company or position I typed just now wasn't in the check above.
-    if (company, position) != (shown.company, shown.position):
+    if (company, position) != checked:
         hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
                 if h[0] not in seen]
         if hits:

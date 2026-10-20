@@ -164,8 +164,22 @@ def test_description_not_available():
         "Posted:\n  unknown")
 
 
+def test_page_guesses_are_shown_marked():
+    d = JobDetails(company_guess="Hooli", position_guess="Dev", description="Nothing here.")
+    text = job_facts.card(d, "other", KEYWORDS, NOW)
+    assert text.split("\n")[0] == "Hooli (from page) · Dev (from page) · Other site"
+    assert "  Title: Dev (from page)" in text
+
+
+def test_read_details_beat_page_guesses():
+    d = JobDetails("Acme", "Engineer", company_guess="Acme Careers", position_guess="Jobs", description="x")
+    text = job_facts.card(d, "other", KEYWORDS, NOW)
+    assert text.split("\n")[0] == "Acme · Engineer · Other site"
+    assert "  Title: Engineer\n" in text and "from page" not in text
+
+
 def test_missing_company_and_title_are_marked_unknown_not_guessed():
-    d = JobDetails(company_guess="Hooli Jobs", position_guess="Dev", description="Nothing here.")
+    d = JobDetails(description="Nothing here.")
     text = job_facts.card(d, "workday", KEYWORDS, NOW)
     assert text.split("\n")[0] == "Company unknown · Workday"
     assert "  Title: unknown" in text and "Hooli" not in text

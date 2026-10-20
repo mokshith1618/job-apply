@@ -144,6 +144,33 @@ def test_card_uses_the_company_i_gave_for_the_site(dup_tracker, tmp_path, capsys
     assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out  # same company + position, found at the card
 
 
+def test_companies_yaml_beats_a_page_guess(tracker_file, tmp_path, capsys):
+    (tmp_path / "companies.yaml").write_text("hcgn.fa.us2.oraclecloud.com: Citizens\n", encoding="utf-8")
+    script = Recorder(capsys, "s")
+    guessed = JobDetails(position="Dev", company_guess="Citizens Careers Page")
+    assert run(tracker_file, ORACLE_URL, script, fetch=lambda u: guessed) == 0
+    assert "\nCitizens · Dev · Oracle Cloud\n" in script.printed[0]
+
+
+def test_page_guesses_are_shown_and_checked_for_duplicates(dup_tracker, capsys):
+    before = dup_tracker.read_bytes()
+    guessed = JobDetails(company_guess=KNOWN_COMPANY, position_guess=KNOWN_POSITION)
+    script = Recorder(capsys, "s")
+    assert run(dup_tracker, "https://example.com/careers/42", script, fetch=lambda u: guessed) == 0
+    out = script.printed[0]
+    assert f"\n{KNOWN_COMPANY} (from page) · {KNOWN_POSITION} (from page) · Other site\n" in out
+    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out
+    assert dup_tracker.read_bytes() == before
+
+
+def test_accepted_guesses_are_not_asked_about_again(dup_tracker):
+    guessed = JobDetails(posted_date=date(2026, 10, 1), company_guess=KNOWN_COMPANY, position_guess=KNOWN_POSITION)
+    script = Script("", "", "", "")  # Apply, accept both guesses, then applied
+    assert run(dup_tracker, "https://example.com/careers/42", script, fetch=lambda u: guessed) == 0
+    assert "Continue anyway? [y/N] " not in script.prompts  # the row was already shown with the card
+    assert cell(dup_tracker, "A898") == KNOWN_COMPANY
+
+
 def test_missing_tracker_stops_before_the_apply_prompt(tmp_path, capsys):
     script = Script()
     assert run(tmp_path / "no-tracker.xlsx", NEW_URL, script) == 2

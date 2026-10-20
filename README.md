@@ -56,13 +56,15 @@ Added row 899 to Job Application Tracker.xlsx.
 
 ## What it does
 
-1. **Detects the job system** from the URL: Greenhouse, Ashby, Lever, Workday, or other.
+1. **Detects the job system** from the URL: Greenhouse, Ashby, Lever, Workday, iCIMS, Oracle
+   Cloud, Rippling, SmartRecruiters, UKG, ADP, Amazon, Workable, or other.
 2. **Checks for duplicates** by URL (ignoring tracking parameters like `utm_*` and `gh_src`)
    and by company + position, right under the job facts card, before it asks whether to
    apply. Rows still waiting in a pending file count too. If you type the company or position
    yourself later and they match a row, it shows the row and asks before continuing.
-3. **Reads job details** from the public Greenhouse, Ashby and Lever APIs, or from a page's
-   `JobPosting` JSON-LD. Anything it can't find, it asks you in the terminal.
+3. **Reads job details** from each board's own public data (job APIs, or the job JSON in the
+   page), else from a page's `JobPosting` JSON-LD, else from the page as Chrome shows it.
+   Anything it can't find, it asks you in the terminal.
 4. **Fills the form** (Greenhouse only, for now) in a visible Chrome window. See
    [Form filling](#form-filling).
 5. **Waits for you** to submit. Press Enter for applied or `s` for skipped.
@@ -136,6 +138,8 @@ everything about citizenship or clearance (equal-opportunity boilerplate left ou
 years-of-experience and degree sentences, plus how long ago the job was posted. The
 keywords are in `matching.yaml`. They match whole words, so list every form you want
 (`sponsor`, `sponsorship`, ...). ALL-CAPS keywords such as `OPT` match only in capitals.
+A company or title read from the job is shown as is. If the job doesn't give one, the card
+shows the page's own tag marked `(from page)` (only a guess), else `Company unknown`.
 Under the card it says whether the link or the same company + position is already in the
 tracker (the Google Sheet, or the Excel file if the Sheet can't be reached). Then
 `Apply to this job? [Enter = yes, s = skip]`: skip ends the run and writes nothing.
