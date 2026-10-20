@@ -14,9 +14,10 @@ from urllib.parse import parse_qs, urlsplit
 import yaml
 
 SHARED_HOSTS = {"job-boards.greenhouse.io", "boards.greenhouse.io", "jobs.ashbyhq.com", "jobs.lever.co",
-                "ats.rippling.com", "jobs.smartrecruiters.com", "careers.smartrecruiters.com"}
+                "ats.rippling.com", "jobs.smartrecruiters.com", "careers.smartrecruiters.com",
+                "apply.workable.com"}
 REMEMBERED_SYSTEMS = {"greenhouse", "ashby", "lever", "rippling", "workday", "icims", "oracle",
-                      "smartrecruiters", "ukg", "adp"}
+                      "smartrecruiters", "ukg", "adp", "workable"}
 
 
 def site_key(url: str, system: str) -> str | None:

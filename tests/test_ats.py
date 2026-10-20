@@ -6,7 +6,7 @@ import pytest
 from jd import load_fixture
 
 import ats
-from ats import adp, amazon, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg
+from ats import adp, amazon, ashby, generic, greenhouse, icims, lever, oracle, rippling, smartrecruiters, ukg, workable
 from ats.common import JobDetails, html_text
 
 
@@ -35,6 +35,9 @@ from ats.common import JobDetails, html_text
     ("https://www.amazon.jobs/en/jobs/3141336/software-engineer-i", "amazon"),
     ("https://amazon.jobs/jobs/3141336", "amazon"),
     ("https://www.amazon.jobs/en/teams/aws", "other"),
+    ("https://apply.workable.com/codehunter/j/D1A0B33C26/", "workable"),
+    ("https://apply.workable.com/codehunter/j/D1A0B33C26/apply", "workable"),
+    ("https://apply.workable.com/j/D1A0B33C26", "other"),  # no account in the link: page reading only
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -460,3 +463,33 @@ def test_amazon_job_not_found(data):
 ])
 def test_amazon_company_unit_code_removed(name, company):
     assert amazon.company_name(name) == company
+
+
+# ---------- Workable (milestone 1e) ----------
+
+def test_workable_job_and_account(monkeypatch):
+    responses = {
+        "https://apply.workable.com/api/v2/accounts/codehunter/jobs/F2E9A49E4A": {
+            "shortcode": "F2E9A49E4A", "title": "Account Executive", "published": "2026-08-12T00:00:00.000Z",
+            "description": "<p>The Opportunity</p>", "requirements": "<ul><li>8+ years selling</li></ul>",
+            "benefits": "<p>Equity</p>"},
+        "https://apply.workable.com/api/v1/accounts/codehunter": {"name": "CodeHunter"},
+    }
+    calls = []
+    monkeypatch.setattr(workable, "get_json", lambda url: calls.append(url) or responses[url])
+    d = workable.fetch_details("https://apply.workable.com/codehunter/j/F2E9A49E4A/?utm_source=x")
+    assert sorted(calls) == sorted(responses)
+    assert d == JobDetails("CodeHunter", "Account Executive", date(2026, 8, 12))
+    assert d.posted_raw == "2026-08-12"  # Workable keeps only the day (midnight UTC): no made-up time
+    assert d.description == "The Opportunity\n8+ years selling\nEquity"
+
+
+def test_workable_keeps_job_when_account_call_fails(monkeypatch):
+    def fake_json(url):
+        if "/accounts/codehunter/jobs/" in url:
+            return {"title": "Account Executive", "published": "2026-08-12T00:00:00.000Z"}
+        raise OSError("offline")
+
+    monkeypatch.setattr(workable, "get_json", fake_json)
+    d = workable.fetch_details("https://apply.workable.com/codehunter/j/F2E9A49E4A")
+    assert d == JobDetails(None, "Account Executive", date(2026, 8, 12))

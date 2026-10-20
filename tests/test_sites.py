@@ -23,6 +23,7 @@ WD = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/De
      "eventus.rec.pro.ukg.net/eve1500evew"),
     ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=A67E&jobId=5", "adp",
      "workforcenow.adp.com/a67e"),  # cid is the employer
+    ("https://apply.workable.com/CodeHunter/j/D1A0B33C26", "workable", "apply.workable.com/codehunter"),
     ("https://www.linkedin.com/jobs/view/123", "other", None),  # job boards list many companies
     ("https://boards.greenhouse.io/embed/job_app?token=1", "greenhouse", None),
 ])
