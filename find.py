@@ -7,17 +7,27 @@ and changes Outcome (plus an optional dated note in Remarks) for the rows I pick
 """
 from __future__ import annotations
 
+import argparse
 import re
+import sys
+from datetime import date
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+import apply
+import sheet_tracker
 import tracker
+from sheet_tracker import SheetMismatch, SheetUnavailable
 
 MAX_SHOWN = 50
 OUTCOME_STYLES = {"Online Assessment": "yellow", "Interview": "blue", "Rejected": "dim"}
+ROWS_PROMPT = "Rows to update (e.g. 1,2 or 1-3 or all; Enter = done): "
+STATUS_PROMPT = "New status: " + "  ".join(f"{i} {o}" for i, o in enumerate(tracker.OUTCOMES, start=1)) + " "
+NOTE_PROMPT = "Note for Remarks (optional): "
 
 
 # ---------- input parsing ----------
@@ -97,3 +107,102 @@ def show_table(console: Console, hits, text: str) -> list:
     if len(ordered) > MAX_SHOWN:
         console.print(f"\n{len(ordered) - MAX_SHOWN} more not shown; narrow the search.", highlight=False)
     return shown
+
+
+# ---------- the run ----------
+
+def _read(sheet: apply.Sheet, tracker_path: Path) -> tuple[list, Path]:
+    """Rows from the Sheet if it can be read, else from the Excel file. -> (rows, that store's pending rows file)"""
+    if sheet.ws is not None:
+        try:
+            return sheet_tracker.read_rows(sheet.ws), sheet.pending
+        except (SheetUnavailable, SheetMismatch) as exc:
+            sheet.failed(exc)
+            print(f"Searching {tracker_path.name} instead.")
+    return tracker.read_rows(tracker_path), tracker.pending_path_for(tracker_path)
+
+
+def _waiting(pending_path: Path, text: str) -> int:
+    """How many rows still waiting in a pending rows file match the search (they can't be updated yet)."""
+    rows = [(0, [r.company, r.position, r.url, r.posted, r.applied_on, "Applied", ""], [r.url])
+            for r in tracker.load_pending(pending_path)]
+    return len(tracker.search_rows(rows, text))
+
+
+def _ask(input_fn, prompt: str, parse):
+    """Ask until `parse` accepts the answer. Enter returns ""."""
+    while True:
+        answer = input_fn(prompt).strip().lstrip("\ufeff")  # PowerShell pipes start with a BOM
+        if not answer:
+            return ""
+        value = parse(answer)
+        if value is not None:
+            return value
+
+
+def _write(sheet: apply.Sheet, tracker_path: Path, updates: list[tracker.OutcomeUpdate], input_fn) -> None:
+    """Same order as apply.py: the Google Sheet, then the Excel file. Rows waiting in a pending file go
+    in before the updates, so an update to a row that was itself waiting can find it."""
+    sheet.flush_pending()
+    sheet.write_updates(updates)
+    tracker.save_pending_updates(tracker.pending_updates_path_for(tracker_path), updates)
+    apply.flush_excel_updates(tracker_path, input_fn)
+
+
+def main(argv=None, input_fn=input, sheet_ws=None, today: date | None = None, console: Console | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Search the tracker by company, position or link; change Outcome.")
+    parser.add_argument("text", nargs="+", help="words to find, e.g. acme or s&p global")
+    parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
+    parser.add_argument("--no-sheet", action="store_true", help="Excel only; skip the Google Sheet")
+    parser.add_argument("--config", type=Path)
+    args = parser.parse_args(argv)
+    text = " ".join(args.text)
+    today = today or date.today()
+    console = console or Console()
+
+    config = apply.load_config(args.config or apply.DEFAULT_CONFIG)
+    tracker_path = apply.tracker_path_for(args.tracker, config)
+    if not tracker_path.exists():
+        print(f"Tracker not found: {tracker_path}")
+        return 2
+    sheet = apply.open_sheet(config, tracker_path, args.no_sheet, sheet_ws,
+                             fallback=f"Searching {tracker_path.name} instead.")
+    try:
+        return _loop(sheet, tracker_path, text, input_fn, today, console)
+    except (EOFError, KeyboardInterrupt):  # Ctrl+Z / Ctrl+C at a question: stop; pending files keep any update
+        print("\nStopped.")
+        return 0
+
+
+def _loop(sheet: apply.Sheet, tracker_path: Path, text: str, input_fn, today: date, console: Console) -> int:
+    """Search, show, ask, write; again until Enter at the rows question."""
+    while True:
+        rows, pending_rows = _read(sheet, tracker_path)
+        shown = show_table(console, tracker.search_rows(rows, text), text)
+        waiting = _waiting(pending_rows, text)
+        if waiting:
+            print(f"{waiting} matching row{'s' if waiting > 1 else ''} still waiting in {pending_rows.name} "
+                  "(not shown; they can be updated once written).")
+        if not shown:
+            return 0
+        print()
+        picked = _ask(input_fn, ROWS_PROMPT, lambda answer: parse_selection(answer, len(shown)))
+        if not picked:
+            return 0
+        status = _ask(input_fn, STATUS_PROMPT, parse_status)
+        if not status:
+            continue
+        note = input_fn(NOTE_PROMPT).strip()
+        n = len(picked)
+        if input_fn(f"Update {n} row{'s' if n > 1 else ''} to {status}? [y/N] ").strip().lower() != "y":
+            print("Nothing changed.\n")
+            continue
+        updates = [tracker.OutcomeUpdate.for_row(*shown[i - 1], outcome=status, note=note, noted_on=today)
+                   for i in picked]
+        _write(sheet, tracker_path, updates, input_fn)
+        print()
+
+
+if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # company names like Nestlé on a cp1252 console
+    sys.exit(main())

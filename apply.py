@@ -116,6 +116,7 @@ class Sheet:
         self.enabled = enabled
         self.ws = ws
         self.pending = pending
+        self.pending_updates = pending.with_name("pending_sheet_updates.json")
         self.backup_dir = backup_dir
 
     def failed(self, exc: Exception) -> None:
@@ -161,6 +162,53 @@ class Sheet:
         tracker.save_pending(self.pending, row)
         print(f"Row saved in {self.pending.name}; it goes to the Google Sheet on the next run.")
 
+    def write_updates(self, updates: list[tracker.OutcomeUpdate]) -> None:
+        """Outcome updates (find.py): any waiting ones first, then these. Unreachable = they wait."""
+        if not self.enabled:
+            return
+        tracker.save_pending_updates(self.pending_updates, updates)
+        self.flush_updates()
+        if self.pending_updates.exists():
+            print(f"Update saved in {self.pending_updates.name}; it goes to the Google Sheet on the next run.")
+
+    def flush_updates(self) -> None:
+        if self.ws is None or not self.pending_updates.exists():
+            return
+        try:
+            written, missing = tracker.flush_pending_updates(
+                None, self.pending_updates,
+                update=lambda updates: sheet_tracker.update_outcome(self.ws, updates, self.backup_dir))
+        except (SheetUnavailable, SheetMismatch) as exc:
+            self.failed(exc)
+            return
+        report_updates("the Google Sheet", written, missing)
+
+
+def report_updates(where: str, written, missing) -> None:
+    for r, u in written:
+        print(f"Updated row {r} in {where}: {u.company} - {u.position} -> {u.outcome}")
+    for u in missing:
+        print(f"Not found in {where}, not changed: {u.company} - {u.position}")
+
+
+def flush_excel_updates(tracker_path: Path, input_fn=None) -> bool:
+    """Write pending_updates.json to the Excel file, after any pending rows (an update may be for one).
+    With `input_fn`, wait while Excel has the file open (s = leave them pending); without it, leave
+    them pending. Returns True once written."""
+    pending = tracker.pending_updates_path_for(tracker_path)
+    while pending.exists():
+        try:
+            for r, old in tracker.flush_pending(tracker_path):
+                print(f"Wrote pending row {r}: {old.company} - {old.position}")
+            report_updates(tracker_path.name, *tracker.flush_pending_updates(tracker_path, pending))
+        except tracker.TrackerLocked:
+            if input_fn is None or input_fn(
+                    f"\n{tracker_path.name} is open in Excel (update saved in {pending.name}). "
+                    "Close Excel, then press Enter to retry, s = leave it pending. ").strip().lower() == "s":
+                print(f"Update kept in {pending.name}; it goes to {tracker_path.name} on the next run.")
+                return False
+    return True
+
 
 def write_row(tracker_path: Path, row: tracker.TrackerRow, input_fn) -> int:
     """Keep the row in pending_rows.json until it's in the tracker, so nothing is lost if Excel has it open."""
@@ -175,8 +223,9 @@ def write_row(tracker_path: Path, row: tracker.TrackerRow, input_fn) -> int:
                      "Close Excel, then press Enter to retry. ")
 
 
-def open_sheet(config: dict, tracker_path: Path, no_sheet: bool, ws=None) -> Sheet:
-    """`ws` lets tests pass a fake worksheet instead of opening the real Sheet."""
+def open_sheet(config: dict, tracker_path: Path, no_sheet: bool, ws=None, fallback: str | None = None) -> Sheet:
+    """`ws` lets tests pass a fake worksheet instead of opening the real Sheet.
+    `fallback` is printed when the Sheet can't be reached (default: apply.py's message)."""
     enabled = not no_sheet and (ws is not None or bool(config.get("sheet_id")))
     sheet = Sheet(enabled, None, tracker_path.parent / "pending_sheet.json", tracker_path.parent / "backups")
     if not enabled:
@@ -187,7 +236,7 @@ def open_sheet(config: dict, tracker_path: Path, no_sheet: bool, ws=None) -> She
                                           _resolve(config.get("google_key", "google-key.json")))
         except SheetUnavailable as exc:
             sheet.failed(exc)
-            print(f"Checking duplicates in {tracker_path.name}; the row will wait in {sheet.pending.name}.")
+            print(fallback or f"Checking duplicates in {tracker_path.name}; the row will wait in {sheet.pending.name}.")
             return sheet
     sheet.ws = ws
     return sheet
@@ -267,8 +316,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
 
     # The duplicate check goes with the card (read only). It never asks: my one answer at the end decides.
     config = load_config(args.config)
-    tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
-                                          else DEFAULT_TRACKER)
+    tracker_path = tracker_path_for(args.tracker, config)
     if not tracker_path.exists():
         print(f"\nTracker not found: {tracker_path}")
         return 0 if args.check else 2
@@ -326,9 +374,18 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     except tracker.TrackerLocked:
         pass  # write_row below waits for Excel to close and writes them with this row
     sheet.write(row)
+    sheet.flush_updates()  # Outcome updates from find.py runs that couldn't reach the Sheet
     r = write_row(tracker_path, row, input_fn)
     print(f"Added row {r} to {tracker_path.name}.")
+    flush_excel_updates(tracker_path)  # ... or that found the Excel file open
     return 0
+
+
+def tracker_path_for(args_tracker: Path | None, config: dict) -> Path:
+    """--tracker, else local_tracker in config.yaml, else the tracker next to this script."""
+    if args_tracker:
+        return args_tracker
+    return _resolve(config["local_tracker"]) if config.get("local_tracker") else DEFAULT_TRACKER
 
 
 if __name__ == "__main__":

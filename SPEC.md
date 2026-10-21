@@ -343,8 +343,10 @@ Google Sheet the tracker already uses.
 ```
 python find.py <text> [--tracker PATH] [--no-sheet]
 ```
-Example: `python find.py acme`. `<text>` can be several words (`python find.py s&p global`).
-`--tracker` and `--no-sheet` work as in apply.py.
+Example: `python find.py acme`. `<text>` can be several words (`python find.py "s&p global"`;
+PowerShell needs the quotes around `&`). `--tracker` and `--no-sheet` work as in apply.py.
+Ctrl+C or end of input at any question stops the run (`Stopped.`); anything not yet written
+stays in its pending file.
 
 ### What it searches
 

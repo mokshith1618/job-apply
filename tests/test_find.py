@@ -390,3 +390,171 @@ def test_sheet_offline_is_sheet_unavailable(tmp_path):
     ws.fail = requests.exceptions.ConnectionError("offline")
     with pytest.raises(SheetUnavailable):
         sheet_tracker.update_outcome(ws, [u], tmp_path)
+
+
+# ---------- find.py runs (fake tracker + fake worksheet) ----------
+
+class Script:
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.prompts = []
+
+    def __call__(self, prompt=""):
+        self.prompts.append(prompt)
+        assert self.answers, f"unexpected prompt: {prompt!r}"
+        return self.answers.pop(0)
+
+
+def known_sheet(**kwargs):
+    return FakeWorksheet([
+        HEADER,
+        [KNOWN_COMPANY, KNOWN_POSITION, KNOWN_URL, "Posted today-Tsenta", "6/20/2026", "Applied"],
+        ["Other Co", "Data Engineer", "https://example.com/other", "Posted today-Other", "7/1/2026", "Applied"],
+    ], **kwargs)
+
+
+def run_find(tracker_file, ws, script, text="example labs", extra=()):
+    return find.main([*text.split(), "--tracker", str(tracker_file), *extra], input_fn=script,
+                     sheet_ws=ws, today=NOTE_DAY)
+
+
+def test_update_goes_to_sheet_then_excel_and_table_shown_again(dup_tracker, capsys):
+    ws = known_sheet()
+    script = Script("1", "2", "Phone screen", "y", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts == [find.ROWS_PROMPT, find.STATUS_PROMPT, find.NOTE_PROMPT,
+                              "Update 1 row to Rejected? [y/N] ", find.ROWS_PROMPT]
+    assert ws.values[1][5:7] == ["Rejected", "10/21/2026 Phone screen"]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Rejected", "10/21/2026 Phone screen"]
+    out = capsys.readouterr().out
+    assert out.index("Updated row 2 in the Google Sheet") < out.index(f"Updated row {KNOWN_ROW} in tracker.xlsx")
+    assert out.count('1 job found for "example labs"') == 2
+    assert list((dup_tracker.parent / "backups").glob("sheet-*.csv"))
+    assert list((dup_tracker.parent / "backups").glob("tracker-*.xlsx"))
+
+
+def test_invalid_answers_are_asked_again(dup_tracker):
+    ws = known_sheet()
+    script = Script("x", "5", "1", "offer", "4", "", "y", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[:5] == [find.ROWS_PROMPT] * 3 + [find.STATUS_PROMPT] * 2
+    assert ws.values[1][5] == "Interview"
+
+
+def test_anything_but_y_writes_nothing(dup_tracker, capsys):
+    ws = known_sheet()
+    before = dup_tracker.read_bytes()
+    assert run_find(dup_tracker, ws, Script("1", "2", "note", "n", "")) == 0
+    assert ws.updates == [] and dup_tracker.read_bytes() == before
+    assert "Nothing changed." in capsys.readouterr().out
+
+
+def test_no_matches(dup_tracker, capsys):
+    script = Script()
+    assert run_find(dup_tracker, known_sheet(), script, text="globex") == 0
+    assert script.prompts == []
+    assert 'No jobs found for "globex".' in capsys.readouterr().out
+
+
+def test_excel_search_when_no_sheet_capped_at_50(dup_tracker, capsys):
+    script = Script("51", "")
+    assert run_find(dup_tracker, known_sheet(), script, text="company", extra=["--no-sheet"]) == 0
+    out = capsys.readouterr().out
+    assert '895 jobs found for "company"' in out and "845 more not shown; narrow the search." in out
+    assert script.prompts == [find.ROWS_PROMPT] * 2
+
+
+def test_sheet_down_at_write_keeps_update_pending_then_flushes(dup_tracker, capsys):
+    ws = known_sheet()
+    real_update = ws.update
+
+    def offline(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("offline")
+
+    ws.update = offline
+    assert run_find(dup_tracker, ws, Script("1", "2", "", "y", "")) == 0
+    pending = dup_tracker.parent / "pending_sheet_updates.json"
+    assert [u.outcome for u in tracker.load_pending_updates(pending)] == ["Rejected"]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]  # Excel still written
+    assert "pending_sheet_updates.json" in capsys.readouterr().out
+
+    ws.update = real_update  # back online: the waiting update goes first, then the new one
+    assert run_find(dup_tracker, ws, Script("1", "4", "", "y", "")) == 0
+    assert [(rng, v[0][0]) for rng, v in ws.updates] == [("F2", "Rejected"), ("F2", "Interview")]
+    assert not pending.exists()
+
+
+def test_sheet_unreachable_at_start_searches_excel(dup_tracker, tmp_path, monkeypatch, capsys):
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sheet_id: abc\nlocal_tracker: '{dup_tracker}'\n", encoding="utf-8")
+
+    def unreachable(sheet_id, tab, key_file):
+        raise SheetUnavailable("offline")
+
+    monkeypatch.setattr(sheet_tracker, "open_sheet", unreachable)
+    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "3", "", "y", ""),
+                     today=NOTE_DAY) == 0
+    out = capsys.readouterr().out
+    assert "Google Sheet unavailable: offline" in out and "Searching tracker.xlsx instead" in out
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Online Assessment"]
+    assert tracker.load_pending_updates(dup_tracker.parent / "pending_sheet_updates.json")
+
+
+def locked_once(monkeypatch, times=1):
+    real_save = tracker._save
+    calls = {"n": 0}
+
+    def save(wb, path):
+        calls["n"] += 1
+        if calls["n"] <= times:
+            raise tracker.TrackerLocked("open in Excel")
+        real_save(wb, path)
+
+    monkeypatch.setattr(tracker, "_save", save)
+    return real_save
+
+
+def test_excel_open_asks_to_close_it_then_writes(dup_tracker, monkeypatch):
+    locked_once(monkeypatch)
+    script = Script("1", "2", "", "y", "", "")
+    assert run_find(dup_tracker, None, script, extra=["--no-sheet"]) == 0
+    assert "Close Excel, then press Enter to retry, s = leave it pending" in script.prompts[4]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]
+    assert not tracker.pending_updates_path_for(dup_tracker).exists()
+
+
+def test_excel_open_s_keeps_update_pending_and_apply_writes_it_later(dup_tracker, monkeypatch, capsys):
+    from test_sheet_tracker import fetch_ok
+
+    import apply
+
+    real_save = locked_once(monkeypatch, times=99)
+    assert run_find(dup_tracker, None, Script("1", "2", "Same day rejection", "y", "s", ""),
+                    extra=["--no-sheet"]) == 0
+    pending = tracker.pending_updates_path_for(dup_tracker)
+    assert tracker.load_pending_updates(pending)[0].note == "Same day rejection"
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Applied"]
+    assert "Update kept in pending_updates.json" in capsys.readouterr().out
+
+    monkeypatch.setattr(tracker, "_save", real_save)  # Excel closed; apply.py's next write also writes it
+    assert apply.main(["https://job-boards.greenhouse.io/acme/jobs/1", "--tracker", str(dup_tracker),
+                       "--no-sheet"], input_fn=Script(""), fetch=fetch_ok, today=NOTE_DAY) == 0
+    assert cells(dup_tracker, "A898", f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == \
+        ["Acme Robotics", "Rejected", "10/21/2026 Same day rejection"]
+    assert not pending.exists()
+
+
+def test_end_of_input_or_ctrl_c_quits_without_writing(dup_tracker, capsys):
+    before = dup_tracker.read_bytes()
+    for stop in (EOFError, KeyboardInterrupt):
+        def script(prompt="", stop=stop):
+            raise stop
+        assert run_find(dup_tracker, None, script, extra=["--no-sheet"]) == 0
+    assert dup_tracker.read_bytes() == before
+    assert capsys.readouterr().out.count("Stopped.") == 2
+
+
+def test_byte_order_mark_from_a_pipe_is_ignored(dup_tracker):
+    script = Script("﻿")
+    assert run_find(dup_tracker, None, script, extra=["--no-sheet"]) == 0
+    assert script.prompts == [find.ROWS_PROMPT]
