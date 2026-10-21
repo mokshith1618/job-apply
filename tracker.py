@@ -23,6 +23,7 @@ SHEET = "Sheet1"
 TABLE = "Table1"
 DATE_FORMAT = "M/d/yyyy"
 OUTCOME = "Applied"
+OUTCOMES = ("Applied", "Rejected", "Online Assessment", "Interview")  # the column F dropdown
 LAST_COL = 9  # A..I
 TABLE_GROWTH = 100  # rows added to Table1 and the E/F validations when the table is full
 TRACKING_PARAMS = {"source", "gh_src", "lever-source", "lever-origin",  # plus every utm_*

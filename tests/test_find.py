@@ -1,8 +1,10 @@
 """Milestone 7: find.py search and Outcome update, on the fake tracker and a fake worksheet."""
-from datetime import datetime
+from datetime import date, datetime
 
 from openpyxl import load_workbook
+from rich.console import Console
 
+import find
 import sheet_tracker
 import tracker
 from fake_sheet import HEADER, FakeWorksheet
@@ -101,3 +103,87 @@ def test_sheet_read_rows_has_remarks_and_hyperlink_targets():
     assert rows[0][1][6] == "OA sent" and rows[0][2] == ["click here", ACME_URL]
     assert rows[1][1][6] == ""  # short rows are padded to A..G
     assert [r for r, _, _ in tracker.search_rows(rows, "myworkdayjobs")] == [2]
+
+
+# ---------- selection, status, note, table (find.py) ----------
+
+def test_parse_selection():
+    assert find.parse_selection("1,3", 5) == [1, 3]
+    assert find.parse_selection("2-4", 5) == [2, 3, 4]
+    assert find.parse_selection(" 3 , 1-2, 3 ", 5) == [1, 2, 3]
+    assert find.parse_selection("all", 3) == [1, 2, 3]
+    assert find.parse_selection("ALL", 2) == [1, 2]
+    for bad in ("0", "6", "4-2", "1-9", "x", "1,,2", "1-", "-2", "1.5", "all,1"):
+        assert find.parse_selection(bad, 5) is None, bad
+
+
+def test_parse_status_by_number_or_name():
+    assert find.parse_status("2") == "Rejected"
+    assert find.parse_status("4") == "Interview"
+    assert find.parse_status(" online assessment ") == "Online Assessment"
+    assert find.parse_status("INTERVIEW") == "Interview"
+    for bad in ("", "0", "5", "offer", "rej"):
+        assert find.parse_status(bad) is None, bad
+
+
+def test_format_note_appends_with_date():
+    day = date(2026, 10, 21)
+    assert find.format_note(day, "Phone screen", "") == "10/21/2026 Phone screen"
+    assert find.format_note(day, "Phone screen", None) == "10/21/2026 Phone screen"
+    assert find.format_note(day, " Phone screen ", "Same day rejection") == \
+        "Same day rejection | 10/21/2026 Phone screen"
+    assert find.format_note(day, "  ", "kept") == "kept"
+
+
+def test_rows_grouped_by_company_newest_first():
+    rows = [
+        row(10, "Acme", "Old role", date="8/21/2026"),
+        row(11, "Beta", "Newest overall", date="10/20/2026"),
+        row(12, "Acme Inc.", "New role", date=datetime(2026, 10, 18)),
+        row(13, "acme", "Middle role", date="10/2/2026"),
+        row(14, "Acme", "No date", date=""),
+        row(15, "Gamma", "Only undated", date="n/a"),
+    ]
+    assert [r for r, _, _ in find.order_rows(rows)] == [11, 12, 13, 10, 14, 15]
+
+
+def show(hits, text="acme"):
+    console = Console(record=True, width=200, color_system=None)
+    shown = find.show_table(console, hits, text)
+    return shown, console.export_text()
+
+
+def test_table_shows_rows_and_domain():
+    hits = [
+        row(640, "Acme", "DevOps Engineer", SP_URL, outcome="Rejected", remarks="Same day rejection",
+            date="8/21/2026"),
+        row(912, "Acme", "Software Engineer I", ACME_URL, date=datetime(2026, 10, 18)),
+    ]
+    shown, out = show(hits)
+    assert [r for r, _, _ in shown] == [912, 640]
+    lines = out.splitlines()
+    assert lines[0] == '2 jobs found for "acme"'
+    first = next(line for line in lines if "912" in line).split()
+    assert first == ["1", "912", "10/18/2026", "Acme", "Software", "Engineer", "I", "Applied",
+                     "acme.wd5.myworkdayjobs.com"]
+    second = next(line for line in lines if "640" in line)
+    assert "Same day rejection" in second and "job-boards.greenhouse.io" in second
+    assert second.split()[:3] == ["2", "640", "08/21/2026"]
+
+
+def test_table_link_text_without_url_and_one_job_wording():
+    shown, out = show([row(4, "Zenith Labs", "Developer", "click here")], "zenith")
+    assert out.splitlines()[0] == '1 job found for "zenith"'
+    assert "click here" in out
+
+
+def test_table_capped_at_50():
+    hits = [row(r, "Acme", f"Role {r}") for r in range(2, 57)]
+    shown, out = show(hits)
+    assert len(shown) == 50
+    assert "5 more not shown; narrow the search." in out
+
+
+def test_no_matches_message():
+    shown, out = show([], "acme")
+    assert shown == [] and out.strip() == 'No jobs found for "acme".'
