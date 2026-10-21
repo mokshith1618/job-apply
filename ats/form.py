@@ -149,6 +149,10 @@ LABEL_RULES = [
     (r"\bhow did you (hear|find|learn|connect)\b|\bwhere did you (hear|find)\b", "source", (TEXT, SELECT)),
     (r"\b(authorized|authorised|eligible|permitted) to work\b", "work_authorization.authorized_to_work_in_us", CHOICE),
     (r"\bsponsor", "work_authorization.requires_sponsorship_*", CHOICE),
+    # "What is your current visa status?": my own free-text description. Dropdowns keep the rules above.
+    (r"\b(visa|immigration|work authori[sz]ation)\b.*\b(status|type)\b"
+     r"|\b(status|type)\b.*\b(visa|immigration|work authori[sz]ation)\b",
+     "work_authorization.visa_details", (TEXT, TEXTAREA)),
     (r"\b(open|willing) to relocat|\brelocation\b", "preferences.willing_to_relocate", CHOICE),
     (r"\bever (worked|been employed)\b|\bpreviously (worked|been employed)\b|\bformer(ly)? employee\b",
      "history.worked_at_company_before", CHOICE),

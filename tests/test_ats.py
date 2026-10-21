@@ -3,10 +3,25 @@ import json
 from datetime import date, datetime
 
 import pytest
+from jd import load_fixture
 
 import ats
-from ats import ashby, generic, greenhouse, icims, lever, oracle, rippling
-from ats.common import JobDetails
+from ats import (
+    adp,
+    amazon,
+    ashby,
+    generic,
+    greenhouse,
+    icims,
+    lever,
+    oracle,
+    rippling,
+    smartrecruiters,
+    successfactors,
+    ukg,
+    workable,
+)
+from ats.common import JobDetails, html_text
 
 
 @pytest.mark.parametrize("url,system", [
@@ -22,6 +37,25 @@ from ats.common import JobDetails
     ("https://abcd.fa.oraclecloud.com.evil.example/hcmUI/CandidateExperience/en/sites/CX_1/job/1", "other"),
     ("https://www.oraclecloud.com/careers", "other"),
     ("https://myworkdayjobs.com.evil.example/job", "other"),
+    ("https://jobs.smartrecruiters.com/Winsupply1/3743990016228326", "smartrecruiters"),
+    ("https://careers.smartrecruiters.com/Winsupply1/3743990016228326-software-developer", "smartrecruiters"),
+    ("https://jobs.smartrecruiters.com.evil.example/Winsupply1/1", "other"),
+    ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/OpportunityDetail?opportunityId=db7b", "ukg"),
+    ("https://eventus.rec.pro.ukg.net/eve1500evew/JobBoard/477175d5/OpportunityDetail?opportunityId=4327", "ukg"),
+    ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/", "other"),  # the board, not a job
+    ("https://ultipro.com.evil.example/T/JobBoard/B/OpportunityDetail?opportunityId=1", "other"),
+    ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a67e&jobId=568057", "adp"),
+    ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=a67e", "other"),  # job list
+    ("https://www.amazon.jobs/en/jobs/3141336/software-engineer-i", "amazon"),
+    ("https://amazon.jobs/jobs/3141336", "amazon"),
+    ("https://www.amazon.jobs/en/teams/aws", "other"),
+    ("https://apply.workable.com/codehunter/j/D1A0B33C26/", "workable"),
+    ("https://apply.workable.com/codehunter/j/D1A0B33C26/apply", "workable"),
+    ("https://apply.workable.com/j/D1A0B33C26", "other"),  # no account in the link: page reading only
+    ("https://career55.sapsf.eu/career?career_job_req_id=158104&career_ns=job_listing&company=HCLPRD", "successfactors"),
+    ("https://career4.successfactors.com/career?career_job_req_id=9&company=Acme", "successfactors"),
+    ("https://career55.sapsf.eu/career?company=HCLPRD&career_ns=job_listing_summary", "other"),  # the job list
+    ("https://sapsf.eu.evil.example/career?career_job_req_id=1", "other"),
 ])
 def test_detect_system(url, system):
     assert ats.detect_system(url) == system
@@ -61,7 +95,8 @@ JSONLD_PAGE = """<html><head><title>x</title>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Wrong"}</script>
 <script type="application/ld+json">
 {"@context":"https://schema.org/","@type":"JobPosting","title":" Security Engineer, Cloud",
- "datePosted":"2026-04-07","hiringOrganization":{"@type":"Organization","name":"Globex"}}
+ "datePosted":"2026-04-07","hiringOrganization":{"@type":"Organization","name":"Globex"},
+ "description":"&lt;p&gt;We sponsor visas.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;3+ years of Go&lt;/li&gt;&lt;/ul&gt;"}
 </script></head></html>"""
 
 
@@ -168,6 +203,12 @@ def test_hints_from_share_tags_title_and_h1():
     assert generic.parse_hints("<title>Jobs | Hooli Careers</title><h1>Careers</h1>").position_guess is None
 
 
+@pytest.mark.parametrize("site_name", ["Candidate Experience site", "Careers", "Jobs page"])
+def test_a_careers_site_default_name_is_not_a_company_guess(site_name):
+    page = f'<meta property="og:site_name" content="{site_name}"><h1>Software Engineer I</h1>'
+    assert generic.parse_hints(page).company_guess is None  # Oracle's default site name, e.g.
+
+
 @pytest.mark.parametrize("org,company,guess", [
     ("Hooli", "Hooli", None),
     ("JPMC Candidate Experience page", None, "JPMC"),  # Oracle site name
@@ -234,3 +275,277 @@ def test_rippling_reads_next_data(monkeypatch):
     assert fetched == ["https://ats.rippling.com/hooli/jobs/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]
     assert rippling.parse_page("<html>no data</html>") == JobDetails()
     assert rippling.parse_page('<script id="__NEXT_DATA__">{"props": {}}</script>') == JobDetails()
+
+
+# --- Job description text and the posted date as the board wrote it (milestone 1d) ---
+
+def test_html_text_blocks_entities_and_scripts():
+    markup = ("<div><p>Tom &amp; Jerry&nbsp; <b>bold</b>\n text</p><ul><li>One</li><li>Two<br>Three</li></ul>"
+              "<script>var x = 1;</script><style>p {}</style></div>")
+    assert html_text(markup) == "Tom & Jerry bold text\nOne\nTwo\nThree"
+
+
+def test_html_text_escaped_html_and_plain_text():
+    assert html_text("&lt;p&gt;A &amp;amp; B&lt;/p&gt;&lt;p&gt;C&lt;/p&gt;") == "A & B\nC"
+    assert html_text("Line one\n\n  - bullet  two \r\nR&amp;D") == "Line one\n- bullet two\nR&D"
+    assert html_text(None) is None
+    assert html_text(" <p> </p> ") is None
+
+
+def lines(details):
+    return details.description.split("\n")
+
+
+def test_greenhouse_description_and_raw_date():
+    d = greenhouse.parse_api(load_fixture("gh-anthropic.json"))
+    assert d.posted_raw == "2026-04-14T06:00:34-04:00"
+    assert ("Visa sponsorship: We do sponsor visas! However, we aren't able to successfully sponsor visas for "
+            "every role and every candidate. But if we make you an offer, we will make every reasonable effort "
+            "to get you a visa, and we retain an immigration lawyer to help with this.") in lines(d)
+    assert "<" not in d.description and "&nbsp;" not in d.description
+
+
+def test_ashby_description_and_raw_date():
+    data = load_fixture("ashby-harvey.json")
+    d = ashby.parse_api(data, data["jobs"][0]["id"])
+    assert d.posted_raw == "2025-08-07T10:47:38.950+00:00"
+    assert ("- Work eligibility: Must have valid Canadian work rights; Harvey does not currently offer visa "
+            "sponsorship for this role") in lines(d)
+
+
+def test_lever_description_has_lists_and_additional_text():
+    d = lever.parse_api(load_fixture("lever-zoox.json"))
+    assert d.posted_raw == "2026-10-06T17:44:27+00:00"  # createdAt in ms, shown as an ISO date-time (UTC)
+    assert lines(d)[-7:] == [
+        "Qualifications",
+        "Masters degree in mechanical engineering, or related field",
+        "Experienced with FMVSS, USNCAP, IIHS, ECE, EU legal and consumer safety protocols",
+        "Extensive experience in virtual development in occupant safety CAE using LS-dyna",
+        "Extensive experience in SW tools, BetaCAE, Oasys, LS-Dyna, FE dummies, LS-Opt",
+        "Strong analytical and communication skills",
+        "Experience with basic Python coding",
+    ]
+    palantir = lever.parse_api(load_fixture("lever-palantir.json"))
+    assert palantir.posted_raw == "2026-08-11T17:38:11+00:00"
+    assert ("Palantir is particularly interested in applicants who have a current right to work in Singapore, "
+            "and we encourage Singapore citizens to apply.") in lines(palantir)  # from additionalPlain
+
+
+def test_jsonld_description_and_raw_date():
+    d = generic.parse_jsonld(JSONLD_PAGE)
+    assert (d.description, d.posted_raw) == ("We sponsor visas.\n3+ years of Go", "2026-04-07")
+
+
+def test_oracle_description_from_all_text_fields():
+    job = {"items": [{**ORACLE_JOB["items"][0],
+                      "OrganizationDescriptionStr": "Initech R&amp;D",
+                      "ExternalDescriptionStr": "<p>Build things.</p><ul><li>3+ years</li></ul>",
+                      "ExternalResponsibilitiesStr": None,
+                      "ExternalQualificationsStr": "",
+                      "CorporateDescriptionStr": "<p>We do not sponsor visas.</p>"}]}
+    d = oracle.parse_api(job)
+    assert d.description == "Initech R&D\nBuild things.\n3+ years\nWe do not sponsor visas."
+    assert d.posted_raw == "2026-10-15T20:43:44+00:00"
+
+
+def test_merge_keeps_description_and_raw_date():
+    a = JobDetails(position="Dev")
+    b = JobDetails(company="Acme", description="Text", posted_raw="2026-10-01")
+    m = a.merge(b)
+    assert (m.description, m.posted_raw) == ("Text", "2026-10-01")
+
+
+def test_chrome_reads_page_text_when_no_description(monkeypatch):
+    page = ('<script type="application/ld+json">{"@type":"JobPosting","title":"Dev","datePosted":"2026-10-01",'
+            '"hiringOrganization":{"name":"Hooli"}}</script>')
+    monkeypatch.setattr(generic, "get_text", lambda url: page)
+    rendered = page + "<main><h1>Dev</h1><p>We cannot sponsor visas.</p><script>x=1</script></main>"
+    d = ats.fetch_details("https://jobs.hooli.example/1", render=lambda url, ready: [rendered])
+    assert d.description == "Dev\nWe cannot sponsor visas."
+
+
+# ---------- SmartRecruiters (milestone 1e) ----------
+
+SR_URL = "https://jobs.smartrecruiters.com/Winsupply1/3743990016228326?trid=abc"
+
+
+def test_smartrecruiters_url():
+    assert smartrecruiters.parse_url(SR_URL) == ("Winsupply1", "3743990016228326")
+    assert smartrecruiters.parse_url("https://careers.smartrecruiters.com/Winsupply1/3743990016228326-software-dev") == (
+        "Winsupply1", "3743990016228326")
+    assert smartrecruiters.parse_url("https://careers.smartrecruiters.com/Winsupply1") == (None, None)
+
+
+def test_smartrecruiters_api(monkeypatch):
+    calls = []
+
+    def fake_json(url):
+        calls.append(url)
+        return {"name": "Software Developer", "releasedDate": "2026-10-19T15:46:05.691Z",
+                "company": {"name": "Winsupply", "identifier": "Winsupply1"},
+                "jobAd": {"sections": {
+                    "companyDescription": {"title": "Company Description", "text": "<p>We sell &amp; ship.</p>"},
+                    "jobDescription": {"title": "Job Description", "text": "<ul><li>Write Java.</li></ul>"},
+                    "qualifications": {"title": "Qualifications", "text": ""}}}}
+
+    monkeypatch.setattr(smartrecruiters, "get_json", fake_json)
+    d = smartrecruiters.fetch_details(SR_URL)
+    assert calls == ["https://api.smartrecruiters.com/v1/companies/Winsupply1/postings/3743990016228326"]
+    assert d == JobDetails("Winsupply", "Software Developer", date(2026, 10, 19))
+    assert d.posted_raw == "2026-10-19T15:46:05.691Z"
+    assert d.description == "Company Description\nWe sell & ship.\nJob Description\nWrite Java."
+    assert smartrecruiters.fetch_details("https://careers.smartrecruiters.com/Winsupply1") == JobDetails()
+
+
+# ---------- UKG / UltiPro (milestone 1e) ----------
+
+UKG_URL = ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d-f3b9-413c-9fb0-4bb23de1c403/"
+           "OpportunityDetail?opportunityId=db7b9339-25b3-4b67-a59f-f69ef00f6ae8&utm_source=linkedin&source=LinkedIn")
+UKG_PAGE = """<html><script>
+  $(function () {
+    var opportunity = new US.Opportunity.CandidateOpportunityDetail({"Id":"db7b","Title":"Web Developer II",
+      "PostedDate":"2026-09-15T15:40:32.649Z","Description":"<p>Build <b>apps</b> &amp; sites.</p>",
+      "EqualOpportunityEmployerDescription":"Equal Opportunity Employer<br>Know your rights. (See notice)"});
+  });
+</script></html>"""
+
+
+def test_ukg_page(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ukg, "get_text", lambda url: calls.append(url) or UKG_PAGE)
+    d = ukg.fetch_details(UKG_URL)
+    assert calls == ["https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d-f3b9-413c-9fb0-4bb23de1c403/"
+                     "OpportunityDetail?opportunityId=db7b9339-25b3-4b67-a59f-f69ef00f6ae8"]
+    assert d == JobDetails(None, "Web Developer II", date(2026, 9, 15))  # UKG has no company field
+    assert d.posted_raw == "2026-09-15T15:40:32.649Z"
+    assert d.description == "Build apps & sites.\nEqual Opportunity Employer\nKnow your rights. (See notice)"
+    assert ukg.parse_page("<html>no job here</html>") == JobDetails()
+    assert ukg.fetch_details("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d2a3d/") == JobDetails()
+
+
+# ---------- ADP Workforce Now (milestone 1e) ----------
+
+ADP_URL = ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html"
+           "?cid=a67e64fb-ad7f-4857-9e34-38ede4751278&jobId=568057&lang=en_US&source=LinkedIn")
+
+
+def test_adp_api(monkeypatch):
+    calls = []
+
+    def fake_json(url):
+        calls.append(url)
+        return {"itemID": "9201293595925_1", "requisitionTitle": "Product Development Specialist",
+                "postDate": "2026-09-21T10:16:00.000-04:00",
+                "requisitionDescription": "<p>Note: start in May.</p><ul><li>Bachelor&#39;s degree</li></ul>"}
+
+    monkeypatch.setattr(adp, "get_json", fake_json)
+    d = adp.fetch_details(ADP_URL)
+    assert calls == ["https://workforcenow.adp.com/mascsr/default/careercenter/public/events/staffing/v1/"
+                     "job-requisitions/568057?cid=a67e64fb-ad7f-4857-9e34-38ede4751278&lang=en_US&locale=en_US"]
+    assert d == JobDetails(None, "Product Development Specialist", date(2026, 9, 21))  # no company in ADP's API
+    assert d.posted_raw == "2026-09-21T10:16:00.000-04:00"
+    assert d.description == "Note: start in May.\nBachelor's degree"
+    assert adp.parse_api({}) == JobDetails()  # a closed job comes back empty
+
+
+# ---------- Amazon (milestone 1e) ----------
+
+def test_amazon_search_json(monkeypatch):
+    calls = []
+
+    def fake_json(url):
+        calls.append(url)
+        return {"hits": 1, "jobs": [{
+            "id_icims": "3141336", "title": "Software Engineer I", "company_name": "Twitch Interactive, Inc. - D48",
+            "posted_date": "December 11, 2025", "description": "About Us:<br/><br/>We stream.",
+            "basic_qualifications": "- 1+ years of Go<br/>- Bachelor's degree",
+            "preferred_qualifications": "- AWS"}]}
+
+    monkeypatch.setattr(amazon, "get_json", fake_json)
+    d = amazon.fetch_details("https://www.amazon.jobs/en/jobs/3141336/software-engineer-i?cmpid=abc")
+    assert calls == ["https://www.amazon.jobs/en/search.json?job_id_icims[]=3141336"]
+    assert d == JobDetails("Twitch Interactive, Inc.", "Software Engineer I", date(2025, 12, 11))
+    assert d.posted_raw == "2025-12-11"
+    assert d.description == "About Us:\nWe stream.\n- 1+ years of Go\n- Bachelor's degree\n- AWS"
+
+
+@pytest.mark.parametrize("data", [{"hits": 0, "jobs": []}, {"jobs": [{"id_icims": "999", "title": "Other job"}]}])
+def test_amazon_job_not_found(data):
+    assert amazon.parse_api(data, "3141336") == JobDetails()
+
+
+@pytest.mark.parametrize("name,company", [
+    ("Twitch Interactive, Inc. - D48", "Twitch Interactive, Inc."),
+    ("Amazon.com Services LLC", "Amazon.com Services LLC"),
+    ("Amazon Web Services, Inc. - A57", "Amazon Web Services, Inc."),
+])
+def test_amazon_company_unit_code_removed(name, company):
+    assert amazon.company_name(name) == company
+
+
+# ---------- Workable (milestone 1e) ----------
+
+def test_workable_job_and_account(monkeypatch):
+    responses = {
+        "https://apply.workable.com/api/v2/accounts/codehunter/jobs/F2E9A49E4A": {
+            "shortcode": "F2E9A49E4A", "title": "Account Executive", "published": "2026-08-12T00:00:00.000Z",
+            "description": "<p>The Opportunity</p>", "requirements": "<ul><li>8+ years selling</li></ul>",
+            "benefits": "<p>Equity</p>"},
+        "https://apply.workable.com/api/v1/accounts/codehunter": {"name": "CodeHunter"},
+    }
+    calls = []
+    monkeypatch.setattr(workable, "get_json", lambda url: calls.append(url) or responses[url])
+    d = workable.fetch_details("https://apply.workable.com/codehunter/j/F2E9A49E4A/?utm_source=x")
+    assert sorted(calls) == sorted(responses)
+    assert d == JobDetails("CodeHunter", "Account Executive", date(2026, 8, 12))
+    assert d.posted_raw == "2026-08-12"  # Workable keeps only the day (midnight UTC): no made-up time
+    assert d.description == "The Opportunity\n8+ years selling\nEquity"
+
+
+def test_workable_keeps_job_when_account_call_fails(monkeypatch):
+    def fake_json(url):
+        if "/accounts/codehunter/jobs/" in url:
+            return {"title": "Account Executive", "published": "2026-08-12T00:00:00.000Z"}
+        raise OSError("offline")
+
+    monkeypatch.setattr(workable, "get_json", fake_json)
+    d = workable.fetch_details("https://apply.workable.com/codehunter/j/F2E9A49E4A")
+    assert d == JobDetails(None, "Account Executive", date(2026, 8, 12))
+
+
+# ---------- SAP SuccessFactors (milestone 1e) ----------
+
+SF_PAGE = """<html><body>
+<div tabindex="0" class="pagetitle">
+ <h1>Career Opportunities: Platform Engineer II (158104)</h1>
+</div>
+<input type="hidden" id="postedOnFastDate" value="1792423278000" />
+<div class="joqReqDescription" tabindex="0" role="note"><div class="externalPosting">
+ <div><h2>Job Summary</h2></div><div><p>Ship <b>GenAI</b> &amp; agents.</p></div>
+</div></div>
+<div class="email-a-friend">Apply Save Job Email Job to Friend</div>
+</body></html>"""
+
+
+def test_successfactors_page(monkeypatch):
+    url = "https://career55.sapsf.eu/career?career_job_req_id=158104&career_ns=job_listing&company=HCLPRD"
+    calls = []
+    monkeypatch.setattr(successfactors, "get_text", lambda u: calls.append(u) or SF_PAGE)
+    d = successfactors.fetch_details(url)
+    assert calls == [url]
+    assert d == JobDetails(None, "Platform Engineer II", date(2026, 10, 19))  # no company on the page
+    assert d.posted_raw == "2026-10-19T15:21:18+00:00"
+    assert d.description == "Job Summary\nShip GenAI & agents."  # the page's buttons are not part of it
+
+
+@pytest.mark.parametrize("h1,title", [
+    ("Career Opportunities: Platform Engineer II (158104)", "Platform Engineer II"),
+    ("Platform Engineer II (158104)", "Platform Engineer II"),
+    ("Career Opportunities: Lead, Data: Platform (7)", "Lead, Data: Platform"),
+])
+def test_successfactors_title(h1, title):
+    assert successfactors.parse_page(f"<h1>{h1}</h1>").position == title
+
+
+def test_successfactors_empty_page():
+    assert successfactors.parse_page("<html>Session expired</html>") == JobDetails()

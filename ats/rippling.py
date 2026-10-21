@@ -36,6 +36,7 @@ def parse_page(page: str) -> JobDetails:
         company=clean(post.get("companyName")) or clean(board.get("companyName")),
         position=clean(post.get("name")),
         posted_date=parse_date(post.get("createdOn")),
+        posted_raw=clean(post.get("createdOn")),
     )
 
 

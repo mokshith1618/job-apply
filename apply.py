@@ -1,23 +1,29 @@
 """Job Apply Helper entry point.
 
-    python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
+    python apply.py <job-url> [--source LinkedIn|Tsenta|Other|any name] [--tracker PATH] [--no-sheet] [--no-fill]
+    python apply.py <job-url> --check      (print the job facts card and exit)
 
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
 Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
 Milestone 2: Greenhouse forms are filled from profile.yaml and answers.yaml before the pause.
+Milestone 1d: the job facts card and the duplicate check are printed first; the only question is the last one.
 This script never submits anything. I submit the application myself.
 """
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import difflib
 import functools
+import re
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
 
 import ats
+import job_facts
 import sheet_tracker
 import tracker
 from ats import browser, greenhouse, sites
@@ -29,9 +35,30 @@ DEFAULT_CONFIG = HERE / "config.yaml"
 DEFAULT_PROFILE = HERE / "profile.yaml"
 DEFAULT_ANSWERS = HERE / "answers.yaml"
 DEFAULT_COMPANIES = HERE / "companies.yaml"
+DEFAULT_MATCHING = HERE / "matching.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
 PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
+
+
+SOURCES = ("LinkedIn", "Tsenta", "Other")
+
+
+def normalize_source(value: str) -> str:
+    """--source: 'linkedin' / 'Linked In' -> 'LinkedIn', a near-miss like 'Linkdin' -> 'LinkedIn' (said aloud),
+    anything else ('Indeed') kept as typed. Empty -> 'Other'."""
+    typed = " ".join(value.split())
+    if not typed:
+        return "Other"
+    key = re.sub(r"[\s\-_.]", "", typed).lower()
+    known = {s.lower(): s for s in SOURCES}
+    if key in known:
+        return known[key]
+    close = difflib.get_close_matches(key, known, n=1, cutoff=0.8)
+    if close:
+        print(f"Source: {typed!r} read as {known[close[0]]}")
+        return known[close[0]]
+    return typed
 
 
 def ask_required(label: str, input_fn, suggestion: str | None = None) -> str:
@@ -61,9 +88,10 @@ def ask_posted_date(input_fn, today: date) -> date | None:
 def show_duplicates(hits) -> None:
     print("\nAlready in the tracker:")
     for row, values in hits:
-        company, position, url, posted, applied, outcome = values
+        company, position, url, posted, applied, outcome = ("" if v is None else v for v in values)
         applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
-        print(f"  row {row}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
+        where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
+        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
 
 
 def load_config(path: Path) -> dict:
@@ -108,14 +136,17 @@ class Sheet:
         return sheet_tracker.append_row(self.ws, row, self.backup_dir)
 
     def find_duplicates(self, tracker_path: Path, **match) -> list:
-        """Check the Sheet; if it can't be reached, check the Excel file instead."""
+        """Check the Sheet; if it can't be reached, check the Excel file instead.
+        Rows still waiting in that tracker's pending file count too."""
         if self.ws is not None:
             try:
-                return sheet_tracker.find_duplicates(self.ws, **match)
+                return (sheet_tracker.find_duplicates(self.ws, **match)
+                        + tracker.pending_duplicates(self.pending, **match))
             except (SheetUnavailable, SheetMismatch) as exc:
                 self.failed(exc)
                 print(f"Checking duplicates in {tracker_path.name} instead.")
-        return tracker.find_duplicates(tracker_path, **match)
+        return (tracker.find_duplicates(tracker_path, **match)
+                + tracker.pending_duplicates(tracker.pending_path_for(tracker_path), **match))
 
     def write(self, row: tracker.TrackerRow) -> None:
         if not self.enabled:
@@ -207,58 +238,63 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
          fill=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
     parser.add_argument("url")
-    parser.add_argument("--source", choices=["LinkedIn", "Tsenta", "Other"], default="Other")
+    parser.add_argument("--source", type=normalize_source, default="Other",
+                        help="LinkedIn, Tsenta or Other (any case); any other name is kept as typed")
     parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
     parser.add_argument("--no-sheet", action="store_true", help="Excel only; skip the Google Sheet")
     parser.add_argument("--no-fill", action="store_true", help="don't open or fill the form")
+    parser.add_argument("--check", action="store_true", help="print the job facts card and exit")
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
     parser.add_argument("--answers", type=Path, default=DEFAULT_ANSWERS)
     parser.add_argument("--companies", type=Path, default=DEFAULT_COMPANIES)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--matching", type=Path, default=DEFAULT_MATCHING)
     args = parser.parse_args(argv)
     today = today or date.today()
     url = args.url.strip()
+
+    # The job facts card comes first: before any question, the tracker or the browser.
+    keywords = job_facts.load_keywords(args.matching)
+    system = ats.detect_system(url)
+    print(f"System: {system}")
+    print("Reading job details...")
+    details = fetch(url)
+    # The card and the duplicate check also use the company I gave for this site before (my answer, not a guess).
+    key = sites.site_key(url, system)
+    shown = details if details.company or not key else dataclasses.replace(
+        details, company=sites.load(args.companies).get(key))
+    print(f"\n{job_facts.card(shown, system, keywords, datetime.now().astimezone())}")
+
+    # The duplicate check goes with the card (read only). It never asks: my one answer at the end decides.
     config = load_config(args.config)
     tracker_path: Path = args.tracker or (_resolve(config["local_tracker"]) if config.get("local_tracker")
                                           else DEFAULT_TRACKER)
-
     if not tracker_path.exists():
-        print(f"Tracker not found: {tracker_path}")
-        return 2
-
+        print(f"\nTracker not found: {tracker_path}")
+        return 0 if args.check else 2
     sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
-    sheet.flush_pending()  # rows from a run where the Sheet couldn't be reached
-
-    # Rows left over from a run where Excel had the file open.
-    try:
-        for r, row in tracker.flush_pending(tracker_path):
-            print(f"Wrote pending row {r}: {row.company} - {row.position}")
-    except tracker.TrackerLocked:
-        print("Note: pending rows are still waiting; close Excel to write them.")
-
-    system = ats.detect_system(url)
-    print(f"System: {system}")
-
-    seen = set()
-    hits = sheet.find_duplicates(tracker_path, url=url)
+    # Page guesses count here too: this only reads, and a match is worth seeing before I decide.
+    checked = (shown.company or shown.company_guess, shown.position or shown.position_guess)
+    hits = sheet.find_duplicates(tracker_path, url=url, company=checked[0], position=checked[1])
     if hits:
         show_duplicates(hits)
-        if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
-            return 1
-        seen = {r for r, _ in hits}
+    else:
+        print("\nTracker: no matching link or job found.")
+    print()
+    if args.check:
+        return 0
+    seen = {r for r, _ in hits}
 
-    print("Reading job details...")
-    details = fetch(url)
     company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
 
-    hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
-            if h[0] not in seen]
-    if hits:
-        show_duplicates(hits)
-        if input_fn("Continue anyway? [y/N] ").strip().lower() != "y":
-            return 1
+    # A company or position I typed just now wasn't in the check above: show any match, don't ask.
+    if (company, position) != checked:
+        hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
+                if h[0] not in seen]
+        if hits:
+            show_duplicates(hits)
 
     row = tracker.TrackerRow(
         company=company,
@@ -282,6 +318,13 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         if session is not None:
             session.close()
 
+    # Only now is anything written: rows left from earlier runs first, then this one.
+    sheet.flush_pending()  # rows from a run where the Sheet couldn't be reached
+    try:  # rows from a run where Excel had the file open
+        for r, old in tracker.flush_pending(tracker_path):
+            print(f"Wrote pending row {r}: {old.company} - {old.position}")
+    except tracker.TrackerLocked:
+        pass  # write_row below waits for Excel to close and writes them with this row
     sheet.write(row)
     r = write_row(tracker_path, row, input_fn)
     print(f"Added row {r} to {tracker_path.name}.")
@@ -289,4 +332,6 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
 
 
 if __name__ == "__main__":
+    # Job text has characters like ● and ’; on Windows a pipe or file would otherwise be cp1252 and crash.
+    sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main())

@@ -1,8 +1,9 @@
 # Job Apply Helper
 
 A personal command-line tool for logging job applications. You paste a job link. The tool
-reads the company, position and posted date, checks whether you've already applied, and
-waits while you submit the application yourself. Then it adds a row to your tracker, in a
+first prints a job facts card (what the description says about sponsorship, citizenship and
+seniority, word for word), then reads the company, position and posted date, checks whether
+you've already applied, and waits while you submit the application yourself. Then it adds a row to your tracker, in a
 Google Sheet and a local Excel file.
 
 ```
@@ -12,6 +13,23 @@ python apply.py https://job-boards.greenhouse.io/acme/jobs/1234567 --source Link
 ```
 System: greenhouse
 Reading job details...
+
+Acme · Software Engineer · Greenhouse
+
+Sponsorship:
+  Acme is unable to sponsor employment visas now or in the future for this role.
+
+Citizenship:
+  not mentioned
+
+Seniority:
+  Title: Software Engineer
+  2+ years of professional software development experience
+
+Posted:
+  October 13, 2026, 8:12 AM (6 hours ago)
+
+Tracker: no matching link or job found.
 
   Company:  Acme
   Position: Software Engineer
@@ -36,12 +54,16 @@ Added row 899 to Job Application Tracker.xlsx.
 
 ## What it does
 
-1. **Detects the job system** from the URL: Greenhouse, Ashby, Lever, Workday, or other.
+1. **Detects the job system** from the URL: Greenhouse, Ashby, Lever, Workday, iCIMS, Oracle
+   Cloud, Rippling, SmartRecruiters, UKG, ADP, Amazon, Workable, SAP SuccessFactors, or other.
 2. **Checks for duplicates** by URL (ignoring tracking parameters like `utm_*` and `gh_src`)
-   and by company + position. If it finds a match, it shows the old row and asks before
-   continuing.
-3. **Reads job details** from the public Greenhouse, Ashby and Lever APIs, or from a page's
-   `JobPosting` JSON-LD. Anything it can't find, it asks you in the terminal.
+   and by company + position, right under the job facts card. Rows still waiting in a
+   pending file count too. If you type the company or position
+   yourself later and they match a row, it shows that row too. It never asks: your answer at
+   the end (Enter = applied, `s` = skipped) is the only question.
+3. **Reads job details** from each board's own public data (job APIs, or the job JSON in the
+   page), else from a page's `JobPosting` JSON-LD, else from the page as Chrome shows it.
+   Anything it can't find, it asks you in the terminal.
 4. **Fills the form** (Greenhouse only, for now) in a visible Chrome window. See
    [Form filling](#form-filling).
 5. **Waits for you** to submit. Press Enter for applied or `s` for skipped.
@@ -93,16 +115,35 @@ won't write into the wrong sheet.
 
 ```
 python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
+python apply.py <job-url> --check
 ```
 
 | Option | Meaning |
 |---|---|
-| `--source` | where you found the job; goes into column D and answers "How did you hear about us?" |
+| `--source` | where you found the job; goes into column D and answers "How did you hear about us?". Any case works (`linkedin` → `LinkedIn`), a near-miss like `Linkdin` is fixed, and any other name (`Indeed`) is kept as typed |
 | `--tracker` | a different local Excel file |
 | `--no-sheet` | skip the Google Sheet for this run |
 | `--no-fill` | don't open or fill the form |
+| `--check` | print the job facts card and stop (nothing asked, nothing written) |
+| `--matching` | a different keyword file (default `matching.yaml`) |
 | `--profile`, `--answers` | different `profile.yaml` / `answers.yaml` files |
 | `--config` | a different config file (default `config.yaml`) |
+
+## Job facts card
+
+Printed right after you give the link, before any question or browser. It shows the
+description's own sentences, never reworded or shortened: everything about sponsorship,
+everything about citizenship or clearance (equal-opportunity boilerplate left out), and the
+years-of-experience and degree sentences, plus how long ago the job was posted. The
+keywords are in `matching.yaml`. They match whole words, so list every form you want
+(`sponsor`, `sponsorship`, ...). ALL-CAPS keywords such as `OPT` match only in capitals.
+A company or title read from the job is shown as is. If the job doesn't give one, the card
+shows the page's own tag marked `(from page)` (only a guess), else `Company unknown`.
+Under the card it says whether the link or the same company + position is already in the
+tracker (the Google Sheet, or the Excel file if the Sheet can't be reached). Then
+There is no question at the card: the only question is the last one (Enter = applied,
+`s` = skipped, which writes nothing).
+`--check` prints the card and the tracker result, then exits.
 
 ## Form filling
 
@@ -112,6 +153,8 @@ uses its own profile in `browser-profile/`, so logins stay saved. Then:
 
 - **Your details:** name, email, phone, location, resume, links, current job and EEO
   answers come from `profile.yaml`.
+- **Visa status in a text box** ("What is your current visa status?") is filled with
+  `work_authorization.visa_details` from `profile.yaml`.
 - **Custom questions:** matched by their label (lowercased, punctuation removed) against
   `answers.yaml`. A few common questions have built-in rules that point at your profile:
   work authorization, sponsorship (a "now or in the future" question uses your *future*
@@ -136,6 +179,8 @@ page changed), it says so and you fill the form by hand. The tracker step still 
 | Path | Purpose |
 |---|---|
 | `apply.py` | entry point |
+| `job_facts.py` | the job facts card |
+| `matching.yaml` | keyword lists for the card |
 | `tracker.py` | Excel tracker: duplicate check, row writing, backups, pending rows |
 | `sheet_tracker.py` | the same for the Google Sheet |
 | `ats/` | one module per job system: reads company, position and posted date; `greenhouse.py` also fills the form |

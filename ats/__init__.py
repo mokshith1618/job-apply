@@ -3,7 +3,22 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlsplit
 
-from . import ashby, generic, greenhouse, icims, lever, oracle, rippling, workday
+from . import (
+    adp,
+    amazon,
+    ashby,
+    generic,
+    greenhouse,
+    icims,
+    lever,
+    oracle,
+    rippling,
+    smartrecruiters,
+    successfactors,
+    ukg,
+    workable,
+    workday,
+)
 from .common import JobDetails
 
 FETCHERS = {
@@ -14,6 +29,12 @@ FETCHERS = {
     "icims": icims.fetch_details,
     "oracle": oracle.fetch_details,
     "rippling": rippling.fetch_details,
+    "smartrecruiters": smartrecruiters.fetch_details,
+    "ukg": ukg.fetch_details,
+    "adp": adp.fetch_details,
+    "amazon": amazon.fetch_details,
+    "workable": workable.fetch_details,
+    "successfactors": successfactors.fetch_details,
     "other": generic.fetch_details,
 }
 
@@ -35,6 +56,18 @@ def detect_system(url: str) -> str:
         return "icims"
     if host.endswith(".oraclecloud.com") and "/candidateexperience/" in parts.path.lower():
         return "oracle"
+    if host in ("jobs.smartrecruiters.com", "careers.smartrecruiters.com"):
+        return "smartrecruiters"
+    if ukg.parse_url(url)[0]:
+        return "ukg"
+    if adp.parse_url(url)[0]:
+        return "adp"
+    if amazon.parse_url(url):
+        return "amazon"
+    if workable.parse_url(url)[0]:
+        return "workable"
+    if successfactors.is_job_link(url):
+        return "successfactors"
     return "other"
 
 
@@ -50,12 +83,12 @@ def fetch_details(url: str, render=None) -> JobDetails:
         details = FETCHERS[system](url)
     except Exception as exc:  # noqa: BLE001 - any failure just means "ask me"
         print(f"  Could not read {'job page' if system == 'other' else system + ' API'}: {exc}")
-    if not details.complete() and system != "other":
+    if not (details.complete() and details.description) and system != "other":
         try:
             details = details.merge(generic.fetch_details(url))
         except Exception as exc:  # noqa: BLE001
             print(f"  Could not read job page: {exc}")
-    if not details.complete() and render is not None:
+    if not (details.complete() and details.description) and render is not None:
         print("  Loading the page in Chrome to read the rest...")
         try:
             pages = render(url, ready=lambda pages: details.merge(generic.parse_pages(pages)).complete())

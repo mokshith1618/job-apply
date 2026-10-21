@@ -1,0 +1,17 @@
+{
+ "id": "5569d46e-0af8-4f07-93ea-b635c7403f7d",
+ "text": "CAE Engineer - Safety occupant",
+ "createdAt": 1791308667290,
+ "descriptionPlain": "About Zoox Zoox is developing fully autonomous vehicles and the supporting ecosystem required to bring the technology to market at scale. Sitting at the intersection of robotics, machine learning, and design, Zoox aims to provide the next generation of mobility-as-a-service in urban environments. We believe the transition to self-driving vehicles requires a combination of elegant vision and uncompromising execution.\nThe Role At Zoox we have set the goal to provide our customers with the highest level of safety while using our fully autonomous vehicles. You will work with a team of world-class engineers with diverse backgrounds such as robotics, control, and vehicle engineering, to deliver the Vehicle Safety performance. Performing the occupant safety simulation activities through the virtual and physical development phases, to sign off and certification. Using analysis, reporting and excellent communication skills to give clear inputs to the safety attribute team to ensure complete vehicle safety targets are met. Working at a startup gives you the chance to manifest your creativity and make a big difference in the final product.\n",
+ "lists": [
+  {
+   "text": "In This Role, You will: ",
+   "content": "<div>\n\n<li>Support vehicle level safety targets to support the Zoox safety strategy</li>\n<li>Take ownership of the occupant safety CAE and support balancing with other Vehicle Integration Attributes</li>\n<li>Setting up the vehicle, dummy, restraints models and co-ordinating model build</li>\n<li>Support the correlation virtual / physical&nbsp;&nbsp;</li>\n<li>Support the overall vehicle structural analysis with respect to various attributes</li>\n<li>Support virtual DVPs and execute accordingly</li>\n<li>Suggest countermeasure design solutions</li>\n<li>Generate virtual analysis engineering reports&nbsp;</li>\n<li>Support report outs at project gateways</li>\n<li>Experience of leading small teams and weekly cadence meetings</li>\n\n</div>"
+  },
+  {
+   "text": "Qualifications ",
+   "content": "<div>\n\n<li>Masters degree in mechanical engineering, or related field</li>\n<li>Experienced with FMVSS, USNCAP, IIHS, ECE, EU legal and consumer safety protocols</li>\n<li>Extensive experience in virtual development in occupant safety CAE using LS-dyna</li>\n<li>Extensive experience in SW tools,&nbsp; BetaCAE, Oasys, LS-Dyna, FE dummies, LS-Opt</li>\n<li>Strong analytical and communication skills</li>\n<li>Experience with basic Python coding</li>\n\n</div>"
+  }
+ ],
+ "additionalPlain": ""
+}

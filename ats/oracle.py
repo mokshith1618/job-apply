@@ -3,7 +3,8 @@
 Job links: https://{host}/hcmUI/CandidateExperience/{lang}/sites/{site}/job/{id}
 GET https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails
     ?expand=all&onlyData=true&finder=ById;Id="{id}",siteNumber={site}
-Fields used (confirmed 2026-10-15): items[0].Title, items[0].ExternalPostedStartDate.
+Fields used (confirmed 2026-10-15): items[0].Title, items[0].ExternalPostedStartDate;
+the description from the DESCRIPTION_FIELDS below (HTML, confirmed 2026-10-19).
 The job API has no company name. The site API (recruitingCESites) has SeoOrganizationName,
 which is often null; then I'm asked in the terminal.
 """
@@ -12,7 +13,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from .common import JobDetails, clean, get_json, parse_date
+from .common import JobDetails, clean, get_json, html_text, parse_date
 
 DETAILS_API = ("{base}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
                '?expand=all&onlyData=true&finder=ById;Id="{job_id}",siteNumber={site}')
@@ -33,10 +34,18 @@ def _first_item(data) -> dict:
     return items[0] if items and isinstance(items[0], dict) else {}
 
 
+# HTML fields that make up the description on the job page, in page order.
+DESCRIPTION_FIELDS = ("OrganizationDescriptionStr", "ExternalDescriptionStr", "ExternalResponsibilitiesStr",
+                      "ExternalQualificationsStr", "CorporateDescriptionStr")
+
+
 def parse_api(data) -> JobDetails:
     item = _first_item(data)
+    text = "\n".join(t for t in (html_text(item.get(f)) for f in DESCRIPTION_FIELDS) if t)
     return JobDetails(position=clean(item.get("Title")),
-                      posted_date=parse_date(item.get("ExternalPostedStartDate")))
+                      posted_date=parse_date(item.get("ExternalPostedStartDate")),
+                      description=text or None,
+                      posted_raw=clean(item.get("ExternalPostedStartDate")))
 
 
 def parse_site(data) -> str | None:

@@ -15,6 +15,17 @@ WD = "https://umbrella.wd5.myworkdayjobs.com/en-US/UmbrellaCareers/job/Remote/De
     ("https://boards.greenhouse.io/embed/job_app?for=acme&token=1", "greenhouse", "boards.greenhouse.io/acme"),
     ("https://jobs.lever.co/initech/aaaa/apply", "lever", "jobs.lever.co/initech"),
     ("https://ats.rippling.com/Hooli/jobs/aaaa", "rippling", "ats.rippling.com/hooli"),
+    ("https://jobs.smartrecruiters.com/Winsupply1/3743990016228326", "smartrecruiters",
+     "jobs.smartrecruiters.com/winsupply1"),
+    ("https://recruiting2.ultipro.com/DES1004DFCU/JobBoard/117d/OpportunityDetail?opportunityId=1", "ukg",
+     "recruiting2.ultipro.com/des1004dfcu"),  # many employers share this host; the tenant is the employer
+    ("https://eventus.rec.pro.ukg.net/eve1500evew/JobBoard/4771/OpportunityDetail?opportunityId=1", "ukg",
+     "eventus.rec.pro.ukg.net/eve1500evew"),
+    ("https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=A67E&jobId=5", "adp",
+     "workforcenow.adp.com/a67e"),  # cid is the employer
+    ("https://apply.workable.com/CodeHunter/j/D1A0B33C26", "workable", "apply.workable.com/codehunter"),
+    ("https://career55.sapsf.eu/career?career_job_req_id=158104&company=HCLPRD", "successfactors",
+     "career55.sapsf.eu/hclprd"),  # one host serves many employers; company= is the employer
     ("https://www.linkedin.com/jobs/view/123", "other", None),  # job boards list many companies
     ("https://boards.greenhouse.io/embed/job_app?token=1", "greenhouse", None),
 ])

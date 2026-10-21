@@ -1,7 +1,8 @@
 """Greenhouse: public Job Board API, and the form filler.
 
 GET https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{id}
-Fields used (confirmed 2026-10-13): title, company_name, first_published.
+Fields used (confirmed 2026-10-13): title, company_name, first_published;
+content (the description, escaped HTML; confirmed 2026-10-19).
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from . import form
-from .common import JobDetails, clean, get_json, parse_date
+from .common import JobDetails, clean, get_json, html_text, parse_date
 
 API = "https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{job_id}"
 
@@ -35,6 +36,8 @@ def parse_api(data: dict) -> JobDetails:
         company=clean(data.get("company_name")),
         position=clean(data.get("title")),
         posted_date=parse_date(data.get("first_published")),
+        description=html_text(data.get("content")),
+        posted_raw=clean(data.get("first_published")),
     )
 
 

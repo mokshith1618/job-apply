@@ -16,10 +16,17 @@ to my Excel tracker.
 ## Usage
 
 ```
-python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
+python apply.py <job-url> [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
+python apply.py <job-url> --check      # print the job facts card and exit
 ```
 
 ## Flow
+
+0. **Job facts card first.** Right after I give the link: detect the system (step 1), read the
+   job details and description (step 3, without asking me anything yet), print the job facts
+   card (see below), run the duplicate check (step 2) and print its result under the card.
+   Then straight on, with no question in between: missing details, the form, and the one
+   question at the end (step 6). There is only one "did I apply" question: the last one.
 
 1. **Detect the system** from the URL:
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
@@ -29,10 +36,19 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
    - Workday: `*.myworkdayjobs.com`
    - iCIMS: `*.icims.com`
    - Oracle Cloud: `*.oraclecloud.com` with `/CandidateExperience/` in the path
+   - SmartRecruiters: `jobs.smartrecruiters.com` or `careers.smartrecruiters.com`, path `/{company}/{id}[-slug]`
+   - UKG: `recruiting*.ultipro.com` or `*.ukg.net`, path `/{tenant}/JobBoard/{board}/OpportunityDetail?opportunityId=`
+   - ADP: `workforcenow.adp.com` with `cid` and `jobId` parameters
+   - Amazon: `amazon.jobs`, path `/{lang}/jobs/{id}`
+   - Workable: `apply.workable.com`, path `/{account}/j/{shortcode}`
+   - SAP SuccessFactors: `*.sapsf.com`, `*.sapsf.eu`, `*.successfactors.com`, `*.successfactors.eu`
+     with a `career_job_req_id` parameter
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
-   `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. If it
-   matches, show the old row and ask whether to continue.
+   `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
+   runs with the card: matching rows (or "no matching link or job found") print under it.
+   If I type the company or position later (the job didn't give them) and that pair matches
+   another row, show it too. Never a question: my answer at the end (step 6) is the decision.
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
@@ -45,6 +61,21 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
      → `items[0].Title`, `items[0].ExternalPostedStartDate`. No company in that API; use
      `SeoOrganizationName` from `recruitingCESites?onlyData=true&q=SiteNumber={site}` when set,
      else ask me.
+   - Milestone 1e boards (each field confirmed on a live job when its reader is built):
+     - SmartRecruiters: `api.smartrecruiters.com/v1/companies/{company}/postings/{id}` →
+       `name`, `company.name`, `releasedDate`, `jobAd.sections` (the description, in page order).
+     - UKG: the job page itself has `CandidateOpportunityDetail({...})` JSON → `Title`,
+       `PostedDate`, `Description`. No company: `companies.yaml` per host + tenant, else ask me.
+     - ADP: `workforcenow.adp.com/mascsr/default/careercenter/public/events/staffing/v1/job-requisitions/{jobId}?cid={cid}`.
+       Company per `cid` in `companies.yaml`, else ask me.
+     - Amazon: `amazon.jobs/en/search.json?job_id_icims[]={id}` → `title`, `posted_date`,
+       `company_name` (Amazon's unit code like ` - D48` removed), description and qualifications.
+     - Workable: `apply.workable.com/api/v2/accounts/{account}/jobs/{shortcode}` (title,
+       published day, description, requirements, benefits) and `api/v1/accounts/{account}` (name).
+     - SAP SuccessFactors: the job page itself (plain download, confirmed 2026-10-19): the title in
+       `<h1>` ("Career Opportunities: {title} ({id})"), the posted time in the hidden input
+       `postedOnFastDate` (milliseconds), the description in `div.joqReqDescription`. No company:
+       `companies.yaml` per host + `company` parameter, else ask me.
    - Other sites: the page's `JobPosting` JSON-LD (`title`, `hiringOrganization`,
      `datePosted`) if present.
    - Still missing: load the page in Chrome (headless, `browser-profile/` so my logins apply),
@@ -65,6 +96,10 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
    - Standard fields (name, email, phone, location, LinkedIn, GitHub, website,
      education, current company) from `profile.yaml`.
    - Resume upload from the path in `profile.yaml`.
+   - Free-text (text box) questions about my visa, immigration or work authorization
+     **status or type** ("What is your current visa status?") get
+     `work_authorization.visa_details` from `profile.yaml`. Missing = ask me. Dropdowns
+     keep their Yes/No rules; other sponsorship text questions still come to me.
    - Custom questions: match the question label (lowercased, punctuation stripped)
      against `answers.yaml`.
    - Unknown **required** field: highlight it in the page, print the label in the
@@ -73,6 +108,129 @@ python apply.py <job-url> [--source LinkedIn|Tsenta|Other]
 6. **Pause.** Print a summary (filled, skipped, needs attention) and:
    `Review the form and click Submit yourself. Then press Enter = applied, s = skipped.`
 7. **Write the tracker row** only if I pressed Enter.
+
+## Job facts card (milestone 1d)
+
+When I give a link, apply.py first prints the parts of the job description I use to decide
+whether to apply. It shows them **exactly as written in the description**: no rewording,
+no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rules only, no AI.
+
+### Input
+
+- Job description text (field names confirmed 2026-10-19): Greenhouse `content` (escaped
+  HTML, unescape and strip tags), Ashby `descriptionPlain`, Lever `descriptionPlain` + `lists`
+  (heading + HTML items) + `additionalPlain` (where Lever boards often put the visa/citizen
+  lines), Oracle `OrganizationDescriptionStr`, `ExternalDescriptionStr`,
+  `ExternalResponsibilitiesStr`, `ExternalQualificationsStr`, `CorporateDescriptionStr`.
+  Other sites (iCIMS, Workday, any page): JobPosting JSON-LD `description`. Still no
+  description: the text of the page and its frames as Chrome renders it (Rippling too).
+- Title and posted date: already read by `ats/` (`first_published`, `publishedAt`, `createdAt`).
+- Keyword lists: `matching.yaml` `keywords:`.
+
+### When it is shown
+
+**First thing after I give the link.** Order in apply.py:
+1. Detect system, read job details and description.
+2. **Print the card** immediately, before any question to me (company name, posted date)
+   and before opening the browser.
+3. **Duplicate check** (read only, Google Sheet or the Excel file as in Flow step 2): the
+   link, and company + position when the job gave both. Rows still waiting in that tracker's
+   pending file count too (pending files are written only when I press Enter = applied).
+   Matching rows print under the card; otherwise `Tracker: no matching link or job found.`
+4. No question here. Then: missing-detail questions, form filling, and the single question
+   at the end (Enter = applied, s = skipped). `s` writes nothing.
+
+`--check` prints the card and the duplicate check and exits, for looking at a link without
+applying. A missing tracker file is only a note there.
+
+### Output
+
+```
+Acme · Software Engineer I · Greenhouse
+
+Sponsorship:
+  Acme is unable to sponsor employment visas now or in the future for this role.
+
+Citizenship:
+  This position requires U.S. citizenship due to government contract requirements.
+
+Seniority:
+  Title: Software Engineer I
+  2+ years of professional software development experience
+  Bachelor's degree in Computer Science or equivalent
+
+Posted:
+  October 19, 2026, 8:12 AM (6 hours ago)
+
+Already in the tracker:
+  row 412: Acme | Software Engineer I | Posted October 2, 2026-LinkedIn | 10/03/2026 | Rejected
+           https://job-boards.greenhouse.io/acme/jobs/1234567
+```
+
+Rules for the text:
+- **Verbatim.** Print each matched sentence or bullet exactly as it appears in the
+  description, after only these mechanical steps: HTML tags removed, HTML entities
+  decoded (`&amp;` to `&`), and runs of spaces/newlines inside the sentence collapsed
+  to one space. No other change: same words, punctuation, capitalization, order.
+- **Complete.** Never cut a sentence. Show every matching sentence, in the order they
+  appear in the description, with no limit.
+- **No duplicates within a section;** a sentence matching two sections appears in both.
+- One sentence per line, indented under the section name.
+- Nothing found: `not mentioned`. Description unreadable: `Description: not available`,
+  and the card still shows the title and posted date.
+- **Company in the header:** from the job, else the name I gave this careers site in
+  `companies.yaml`, else the page-tag guess marked `(from page)`, else `Company unknown`.
+  The title: from the job, else the page-tag guess marked `(from page)`, else `unknown`.
+  A guess is only shown; it reaches the tracker only if I accept it at the later question.
+  The duplicate check under the card uses the same company and title. A careers site's default name ("Candidate
+  Experience site", "Careers") is not offered as a company guess either.
+- **Posted:** a readable date in my local time zone, then the age in parentheses:
+  `October 8, 2026, 9:00 AM (11 days ago)`. Under a day: "N hours ago" ("less than an hour
+  ago" under an hour). A date without a time: `October 8, 2026 (11 days ago)`, or `(today)`.
+  A value that can't be read as a date is shown as the board gave it. No date: `unknown`.
+  (The verbatim rule is for description sentences, not the date.)
+
+### Which sentences each section shows
+
+Split the description into sentences, and also treat each bullet point and line as its
+own unit, so a bullet is shown whole. Matching is whole words, exactly as listed
+(`sponsor` does not match `sponsorship`, so `matching.yaml` lists every form). It is
+case-insensitive, except that all-caps keywords (OPT, CPT, ITAR, H1B, BS, MS) match only
+in capitals, so "opt out" is not a sponsorship sentence.
+
+1. **Sponsorship:** sentences containing any of `keywords.sponsorship`
+   (sponsor/sponsors/sponsorship/sponsoring, visa, H-1B, H1B, work authorization,
+   authorized to work, employment authorization, OPT, CPT, immigration).
+2. **Citizenship:** sentences containing any of `keywords.citizenship`
+   (citizen/citizens/citizenship, green card, permanent resident, clearance, TS/SCI,
+   public trust, ITAR, export control, U.S. person, US person).
+   Leave out sentences containing any of `keywords.citizenship_ignore`
+   (regardless of, without regard to, equal opportunity, protected veteran), which are
+   equal-opportunity boilerplate.
+3. **Seniority:**
+   - The job title as the board gives it.
+   - Sentences with years of experience: "N+ years", "N-M years", "N to M years",
+     "at least N years", "minimum (of) N years", "N or more years", "N years".
+   - Sentences with a degree requirement: Bachelor, BS, B.S., Master, MS, M.S., PhD,
+     degree.
+4. **Posted:** see above.
+
+### Out of scope for 1d
+
+Match score, verdicts, job type, location, already-applied cooldown, H-1B and E-Verify
+lookups, saving the full JD text.
+
+### Done when
+
+- Tests with at least 10 saved JD fixtures (`tests/fixtures/jd/`) that assert the exact
+  printed text, including: several sponsorship wordings, an OPT/STEM OPT mention,
+  EEO boilerplate that must not appear under Citizenship, a clearance requirement,
+  years and degree sentences, a bullet-list JD (each bullet shown whole), a very long
+  sentence (shown in full), HTML entities, a JD with no mentions (`not mentioned`),
+  and posted dates (hours ago, days ago, Lever timestamp, unknown).
+- A test that each printed sentence appears word for word in the cleaned description.
+- Card shown for a real Greenhouse, Ashby and Lever job, before any prompt.
+- `ruff check .` and `pytest` pass.
 
 ## Tracker format (`Job Application Tracker.xlsx`)
 
@@ -119,12 +277,14 @@ Every row is written to both: the Sheet first, then the local Excel file.
 |---|---|
 | `apply.py` | entry point |
 | `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `rippling.py`, `icims.py`, `oracle.py`, `generic.py`, `browser.py` (page reading in Chrome) |
+| `job_facts.py` | the job facts card (sentence splitting, keyword matching, posted age) |
 | `tracker.py` | duplicate check and row writing (Excel) |
 | `sheet_tracker.py` | the same for the Google Sheet |
 | `config.yaml` | Sheet ID, tab, key path, local tracker path |
 | `profile.yaml` | my details (filled from resume; sensitive answers set by me) |
 | `answers.yaml` | saved answers to custom questions, grows over time |
 | `companies.yaml` | company name per careers site, saved the first time I type it |
+| `matching.yaml` | keyword lists for the job facts card (and my skills list, not used yet) |
 | `tracker_copy.xlsx` | copy of the tracker for manual experiments. Tests build their own fake tracker (`tests/fake_tracker.py`). |
 | `tests/` | pytest tests |
 
@@ -151,6 +311,12 @@ Every row is written to both: the Sheet first, then the local Excel file.
    iCIMS (iframe page), Oracle Cloud (recruiting API), Rippling (`__NEXT_DATA__`), the Chrome
    fallback for JavaScript pages, company/position guesses offered as defaults, and
    `companies.yaml` (company name remembered per careers site). See Flow step 3.
+1d. **Job facts card:** the decision card printed right after I give a link, before any
+   prompt or browser. See "Job facts card" above. (Done 2026-10-19: 12 saved JDs in
+   `tests/fixtures/jd/`, checked on real Greenhouse, Ashby and Lever jobs.)
+1e. **More job boards** (job details and the card only, no form filling): SmartRecruiters,
+   UKG, ADP, Amazon, Workable, SAP SuccessFactors (see Flow steps 1 and 3), and page-tag guesses shown on the
+   card, marked. Chosen from the links in my tracker that the earlier readers missed.
 3. **Ashby**, then **Lever**, using the same pattern. (Next.)
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;
