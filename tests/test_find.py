@@ -2,6 +2,7 @@
 from datetime import date, datetime
 
 import pytest
+import requests
 from openpyxl import load_workbook
 from rich.console import Console
 
@@ -10,6 +11,7 @@ import sheet_tracker
 import tracker
 from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
 from fake_sheet import HEADER, FakeWorksheet
+from sheet_tracker import SheetMismatch, SheetUnavailable
 
 ACME_URL = "https://acme.wd5.myworkdayjobs.com/External/job/Austin/Cloud-Engineer_R123"
 SP_URL = "https://job-boards.greenhouse.io/spglobal/jobs/555"
@@ -299,3 +301,92 @@ def test_locked_excel_keeps_update_pending_until_next_flush(dup_tracker, monkeyp
     written, missing = tracker.flush_pending_updates(dup_tracker, backup_dir=dup_tracker.parent / "b")
     assert [r for r, _ in written] == [KNOWN_ROW] and not pending.exists()
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Rejected", "10/21/2026 Phone screen"]
+
+
+# ---------- Sheet update ----------
+
+LIST_RULE = {"condition": {"type": "ONE_OF_LIST", "values": [
+    {"userEnteredValue": "Applied"}, {"userEnteredValue": "Rejected"}, {"userEnteredValue": "Online Assessment"}]},
+    "strict": True, "showCustomUi": True}
+
+
+def sheet(**kwargs):
+    return FakeWorksheet([
+        HEADER,
+        ["Acme Inc.", "Cloud Engineer", "click here", "Posted today-Other", "10/1/2026", "Applied", "OA sent"],
+        ["S&P Global", "Software Engineer", SP_URL, "Posted today-Other", "9/1/2026", "Applied"],
+    ], formulas={2: f'=HYPERLINK("{ACME_URL}", "click here")'}, **kwargs)
+
+
+def sheet_update(ws, r, **kwargs):
+    (found_row,) = [x for x in sheet_tracker.read_rows(ws) if x[0] == r]
+    return tracker.OutcomeUpdate.for_row(*found_row, outcome=kwargs.get("outcome", "Rejected"),
+                                         note=kwargs.get("note", ""), noted_on=NOTE_DAY)
+
+
+def test_sheet_outcome_and_remark_written(tmp_path):
+    ws = sheet()
+    updates = [sheet_update(ws, 2, note="=Phone screen"), sheet_update(ws, 3, outcome="Interview")]
+    written, missing = sheet_tracker.update_outcome(ws, updates, tmp_path / "backups")
+    assert [r for r, _ in written] == [2, 3] and missing == []
+    assert ws.updates == [("F2:G2", [["Rejected", "OA sent | 10/21/2026 =Phone screen"]]),
+                          ("F3", [["Interview"]])]
+    assert len(list((tmp_path / "backups").glob("sheet-*.csv"))) == 1
+
+
+def test_sheet_remark_that_looks_like_a_formula_is_kept_as_text(tmp_path):
+    ws = sheet()
+    ws.values[1][6] = ""
+    sheet_tracker.update_outcome(ws, [sheet_update(ws, 2, note="+1 recruiter")], tmp_path)
+    assert ws.updates == [("F2:G2", [["Rejected", "10/21/2026 +1 recruiter"]])]
+    assert sheet_tracker._text("=x") == "'=x"
+
+
+def test_sheet_row_found_again_after_a_shift(tmp_path):
+    ws = sheet()
+    u = sheet_update(ws, 3)
+    ws.values.insert(1, ["New Co", "New role", "https://x.com/9", "", "10/20/2026", "Applied"])
+    written, _ = sheet_tracker.update_outcome(ws, [u], tmp_path)
+    assert [r for r, _ in written] == [4] and ws.values[3][5] == "Rejected"
+
+
+def test_sheet_dropdown_gets_interview(tmp_path):
+    ws = sheet(validation=LIST_RULE)
+    sheet_tracker.update_outcome(ws, [sheet_update(ws, 2)], tmp_path)
+    (params,) = ws.spreadsheet.metadata_params
+    assert params["ranges"] == "'Sheet1'!F2"
+    (req,) = [q["setDataValidation"] for q in ws.spreadsheet.requests]
+    assert req["range"] == {"sheetId": 7, "startRowIndex": 1, "endRowIndex": 1000,
+                            "startColumnIndex": 5, "endColumnIndex": 6}
+    assert [v["userEnteredValue"] for v in req["rule"]["condition"]["values"]] == list(tracker.OUTCOMES)
+    assert req["rule"]["strict"] is True and req["rule"]["showCustomUi"] is True
+
+
+def test_sheet_dropdown_left_alone_when_complete_missing_or_not_a_list(tmp_path, capsys):
+    complete = {**LIST_RULE, "condition": {"type": "ONE_OF_LIST", "values": [
+        {"userEnteredValue": o} for o in tracker.OUTCOMES]}}
+    by_range = {"condition": {"type": "ONE_OF_RANGE", "values": [{"userEnteredValue": "=Lists!A1:A3"}]}}
+    for rule in (complete, None, by_range):
+        ws = sheet(validation=rule)
+        sheet_tracker.update_outcome(ws, [sheet_update(ws, 2)], tmp_path)
+        assert ws.spreadsheet.requests == []
+    assert "add Interview to it by hand" in capsys.readouterr().out
+
+
+def test_sheet_missing_row_and_wrong_header_write_nothing(tmp_path):
+    ws = sheet()
+    gone = update(urls=("https://jobs.lever.co/nobody/1",), company="Nobody", position="None")
+    assert sheet_tracker.update_outcome(ws, [gone], tmp_path / "b") == ([], [gone])
+    assert ws.updates == [] and not (tmp_path / "b").exists()
+    ws = FakeWorksheet([["Name", "Email"], ["x", "y"]])
+    with pytest.raises(SheetMismatch):
+        sheet_tracker.update_outcome(ws, [gone], tmp_path / "b")
+    assert ws.updates == []
+
+
+def test_sheet_offline_is_sheet_unavailable(tmp_path):
+    ws = sheet()
+    u = sheet_update(ws, 2)
+    ws.fail = requests.exceptions.ConnectionError("offline")
+    with pytest.raises(SheetUnavailable):
+        sheet_tracker.update_outcome(ws, [u], tmp_path)
