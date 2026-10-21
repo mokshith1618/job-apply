@@ -18,6 +18,7 @@ to my Excel tracker.
 ```
 python apply.py <job-url> [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
 python apply.py <job-url> --check      # print the job facts card and exit
+python find.py <text>                  # search the tracker, change Outcome (milestone 7)
 ```
 
 ## Flow
@@ -244,8 +245,12 @@ lookups, saving the full JD text.
 | C | URL | the URL as text **and** as a hyperlink |
 | D | Posted date/ Source | e.g. `Posted today-Tsenta`, `Posted October 8, 2026-LinkedIn` (match existing style) |
 | E | Date | today as a real date, number format `M/d/yyyy` |
-| F | Outcome | `Applied` (must be one of the dropdown values: Applied, Rejected, Online Assessment) |
-| G, H, I | Remarks, Experience, Key Skills | leave empty |
+| F | Outcome | `Applied` (must be one of the dropdown values: Applied, Rejected, Online Assessment, Interview) |
+| G | Remarks | apply.py leaves it empty; find.py appends dated notes (milestone 7) |
+| H, I | Experience, Key Skills | leave empty |
+
+- Every Excel write makes sure the column F list validation offers all four Outcome values
+  (Interview is added if missing).
 
 - When the table reaches its last row, extend `Table1` and the data validation ranges
   on columns E and F so new rows keep the date check and the Outcome dropdown.
@@ -276,10 +281,13 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | File | Purpose |
 |---|---|
 | `apply.py` | entry point |
+| `find.py` | search the tracker and change Outcome / Remarks (milestone 7) |
 | `ats/` | one module per system: `greenhouse.py`, `ashby.py`, `lever.py`, `workday.py`, `rippling.py`, `icims.py`, `oracle.py`, `generic.py`, `browser.py` (page reading in Chrome) |
 | `job_facts.py` | the job facts card (sentence splitting, keyword matching, posted age) |
-| `tracker.py` | duplicate check and row writing (Excel) |
+| `tracker.py` | duplicate check, search, row writing and Outcome updates (Excel) |
 | `sheet_tracker.py` | the same for the Google Sheet |
+| `pending_rows.json`, `pending_sheet.json` | new rows waiting for Excel / the Sheet |
+| `pending_updates.json`, `pending_sheet_updates.json` | Outcome updates waiting for Excel / the Sheet |
 | `config.yaml` | Sheet ID, tab, key path, local tracker path |
 | `profile.yaml` | my details (filled from resume; sensitive answers set by me) |
 | `answers.yaml` | saved answers to custom questions, grows over time |
@@ -321,6 +329,99 @@ Every row is written to both: the Sheet first, then the local Excel file.
 4. **Workday** (account login per company: pause and let me log in).
 5. **Other sites:** the generic module fills only fields it can match with confidence;
    for the rest I use Claude in Chrome by hand.
+6. **Email:** parked.
+7. **Search and update status** (`find.py`). See "Milestone 7" below.
+
+## Milestone 7: Search by company and update status
+
+A quick way to find every job I applied to at a company and change their Outcome together,
+so I don't have to scroll the tracker. No email access, no AI, no network calls except the
+Google Sheet the tracker already uses.
+
+### Usage
+
+```
+python find.py <text> [--tracker PATH] [--no-sheet]
+```
+Example: `python find.py acme`. `<text>` can be several words (`python find.py s&p global`).
+`--tracker` and `--no-sheet` work as in apply.py.
+
+### What it searches
+
+Every tracker row with a Company or URL value where `<text>` appears in:
+- **Company** (column A),
+- **Position** (column B),
+- **URL** (column C): the link text or the hyperlink target, e.g. `acme.wd5.myworkdayjobs.com`.
+
+Matching: case-insensitive substring. For Company and Position, both sides are cleaned the
+same way: punctuation becomes a space, spaces collapse, and trailing company suffixes are
+dropped (inc, llc, ltd, corp, corporation, co, plc, gmbh, lp, llp, ag, sa), so `Acme Inc` =
+`Acme` and `s&p global` finds `S&P Global`. For the URL, the text as typed (lowercased), or
+the cleaned text without spaces, must appear in the link.
+
+Data source: the Google Sheet if configured and reachable, otherwise the Excel tracker. Rows
+still waiting in a pending rows file are not shown; a note under the table says how many wait.
+
+### What it shows
+
+A table in the terminal (`rich`), grouped by company. Groups are ordered by their newest
+date, rows inside a group newest first; a date that can't be read goes last.
+
+```
+3 jobs found for "acme"
+
+ #  Row  Date        Company  Position                    Outcome    Remarks             Link
+ 1  912  10/18/2026  Acme     Software Engineer I         Applied                         acme.wd5.myworkdayjobs.com
+ 2  877  10/02/2026  Acme     Cloud Engineer              Applied                         job-boards.greenhouse.io
+ 3  640  08/21/2026  Acme     DevOps Engineer             Rejected   Same day rejection   job-boards.greenhouse.io
+```
+
+- Link shows the domain; the full URL is clickable where the terminal supports links
+  (OSC 8 hyperlinks via `rich`).
+- Outcome colored: Applied (plain), Online Assessment (yellow), Interview (blue),
+  Rejected (dim). Long text wraps.
+- More than 50 matches: show the first 50 and say how many more (narrow the search).
+- No matches: `No jobs found for "acme".`
+
+### Changing status
+
+After the table:
+```
+Rows to update (e.g. 1,2 or 1-3 or all; Enter = done):
+New status: 1 Applied  2 Rejected  3 Online Assessment  4 Interview
+Note for Remarks (optional):
+Update 2 rows to Rejected? [y/N]
+```
+- Invalid input asks again. The status can be its number or its name (any case).
+  Anything but `y` at the confirm writes nothing.
+- Writes **Outcome**; if a note is given, appends `MM/DD/YYYY <note>` to **Remarks**
+  (separated by ` | `, never overwriting existing text). The note is added to whatever
+  Remarks holds when the write happens.
+- **Finding the row again.** Sheet and Excel row numbers can differ, and either may have
+  changed since the search. Each picked row is carried as company, position, URL and date
+  plus the row number it was found at. In each store, before writing: the hinted row is used
+  if it still has that URL (or company + position when there's no URL); otherwise the one row
+  with that URL, or with that company + position + date. None or several: that row is not
+  written and is reported by name.
+- Same write path as apply.py: backup first, Google Sheet then Excel. If the Sheet can't be
+  reached the update waits in `pending_sheet_updates.json`. If Excel has the file open:
+  `Close Excel, then press Enter to retry, s = leave it pending`; `s` keeps it in
+  `pending_updates.json`. Pending updates are written on the next find.py update or apply.py
+  write, after pending rows (so an update to a row that was itself pending finds it).
+- Prints the rows again after the update (read again from the source), then asks again;
+  Enter at `Rows to update` quits.
+- **Interview** is added to the Outcome dropdown: Excel data validation on column F (list
+  formula), and the Sheet's validation if it is a list rule (`ONE_OF_LIST`); any other Sheet
+  rule is left alone with a note.
+
+### Done when
+
+- Tests on the fake tracker: match by company, position and URL; case and punctuation;
+  suffixes (Acme Inc = Acme); no match; selection parsing (`1,3`, `2-4`, `all`, invalid);
+  Outcome update; Remarks appended, not overwritten; Interview accepted by the dropdown;
+  pending file when Excel is locked; Sheet update via the fake worksheet.
+- `ruff check .` and `pytest` pass.
+- One real run (by me): search a company, update a row, see it in the Sheet and Excel.
 
 ## Out of scope
 

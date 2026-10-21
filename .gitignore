@@ -7,6 +7,8 @@ companies.yaml
 backups/
 pending_rows.json
 pending_sheet.json
+pending_updates.json
+pending_sheet_updates.json
 config.yaml
 google-key.json
 browser-profile/
