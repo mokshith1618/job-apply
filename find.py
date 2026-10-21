@@ -8,7 +8,6 @@ and changes Outcome (plus an optional dated note in Remarks) for the rows I pick
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
 from urllib.parse import urlsplit
 
 from rich.console import Console
@@ -49,38 +48,13 @@ def parse_status(text: str) -> str | None:
     return next((o for o in tracker.OUTCOMES if o.casefold() == text), None)
 
 
-def format_note(day: date, note: str, existing) -> str:
-    """Remarks after adding `note`: 'existing | MM/DD/YYYY note'. No note = Remarks unchanged."""
-    existing = "" if existing is None else str(existing).strip()
-    note = note.strip()
-    if not note:
-        return existing
-    dated = f"{day:%m/%d/%Y} {note}"
-    return f"{existing} | {dated}" if existing else dated
-
-
 # ---------- table ----------
-
-def parse_date(value) -> date | None:
-    """Column E as a date: an Excel date, or Sheet text like '6/20/2026'. Anything else: None."""
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value or "").strip()
-    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
-            pass
-    return None
-
 
 def order_rows(rows):
     """Group by company (search_key), groups by their newest date, rows newest first; no date last."""
     def newest_first(item):
         r, values, _ = item
-        d = parse_date(values[4])
+        d = tracker.parse_date(values[4])
         return (d is None, -(d.toordinal() if d else 0), -r)
 
     groups: dict[str, list] = {}
@@ -114,7 +88,7 @@ def show_table(console: Console, hits, text: str) -> list:
     for name in ("#", "Row", "Date", "Company", "Position", "Outcome", "Remarks", "Link"):
         table.add_column(name, overflow="fold", justify="right" if name in ("#", "Row") else "left")
     for i, (r, values, urls) in enumerate(shown, start=1):
-        d = parse_date(values[4])
+        d = tracker.parse_date(values[4])
         outcome = _cell(values[5])
         table.add_row(str(i), str(r), f"{d:%m/%d/%Y}" if d else _cell(values[4]), Text(_cell(values[0])),
                       Text(_cell(values[1])), Text(outcome, style=OUTCOME_STYLES.get(outcome, "")),

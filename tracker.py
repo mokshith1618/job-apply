@@ -154,6 +154,138 @@ def search_rows(rows, text: str) -> list[tuple[int, list, list[str]]]:
     return hits
 
 
+def parse_date(value) -> date | None:
+    """Column E as a date: an Excel date, or Sheet text like '6/20/2026'. Anything else: None."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def format_note(day: date, note: str, existing) -> str:
+    """Remarks after adding `note`: 'existing | MM/DD/YYYY note'. No note = Remarks unchanged."""
+    existing = "" if existing is None else str(existing).strip()
+    note = note.strip()
+    if not note:
+        return existing
+    dated = f"{day:%m/%d/%Y} {note}"
+    return f"{existing} | {dated}" if existing else dated
+
+
+# ---------- Outcome updates (find.py) ----------
+
+@dataclass
+class OutcomeUpdate:
+    """A new Outcome (and optional note) for one job, found again by its details before writing:
+    Sheet and Excel row numbers can differ, and either may have changed since the search."""
+    company: str
+    position: str
+    urls: list[str]  # link text and hyperlink target as found
+    applied: str  # column E as an ISO date, or "" when it couldn't be read
+    row: int  # where the search found it; tried first
+    outcome: str
+    note: str
+    noted_on: date
+
+    def to_json(self) -> dict:
+        d = asdict(self)
+        d["noted_on"] = self.noted_on.isoformat()
+        return d
+
+    @classmethod
+    def from_json(cls, d: dict) -> "OutcomeUpdate":
+        return cls(**{**d, "noted_on": date.fromisoformat(d["noted_on"])})
+
+    @classmethod
+    def for_row(cls, r: int, values: list, urls: list[str], outcome: str, note: str,
+                noted_on: date) -> "OutcomeUpdate":
+        applied = parse_date(values[4])
+        return cls(company=str(values[0] or ""), position=str(values[1] or ""), urls=list(urls),
+                   applied=applied.isoformat() if applied else "", row=r, outcome=outcome, note=note,
+                   noted_on=noted_on)
+
+
+def _url_ids(urls) -> set[str]:
+    """Normalized links that are real URLs (link text like 'click here' can't identify a job)."""
+    return {normalize_url(u) for u in urls if urlsplit(u.strip()).hostname}
+
+
+def locate(rows, update: OutcomeUpdate) -> int | None:
+    """The row number of `update`'s job in rows from read_rows(), or None if it isn't there exactly once.
+
+    The hinted row wins if it still holds the job. Otherwise exactly one row must have the same URL
+    (or, with no URL, the same company + position); several are narrowed by company + position, then date.
+    """
+    want_urls = _url_ids(update.urls)
+    want_pair = (_norm_text(update.company), _norm_text(update.position))
+
+    def pair(values):
+        return (_norm_text(values[0]), _norm_text(values[1]))
+
+    def same(values, urls):
+        return bool(want_urls & _url_ids(urls)) if want_urls else pair(values) == want_pair
+
+    by_row = {r: (values, urls) for r, values, urls in rows}
+    if update.row in by_row and same(*by_row[update.row]):
+        return update.row
+    hits = [(r, values) for r, values, urls in rows if same(values, urls)]
+    if len(hits) > 1 and want_urls:
+        hits = [(r, values) for r, values in hits if pair(values) == want_pair] or hits
+    if len(hits) > 1 and update.applied:
+        hits = [(r, values) for r, values in hits
+                if (d := parse_date(values[4])) and d.isoformat() == update.applied] or hits
+    return hits[0][0] if len(hits) == 1 else None
+
+
+def _ensure_outcome_choices(ws) -> None:
+    """Make the column F list validation offer every value in OUTCOMES (adds Interview)."""
+    for dv in ws.data_validations.dataValidation:
+        formula = dv.formula1 or ""
+        covers_f = any(rng.min_col <= 6 <= rng.max_col for rng in dv.sqref.ranges)
+        if dv.type != "list" or not covers_f or not (formula.startswith('"') and formula.endswith('"')):
+            continue
+        choices = [c for c in formula[1:-1].split(",") if c]
+        missing = [o for o in OUTCOMES if o not in choices]
+        if missing:
+            dv.formula1 = '"' + ",".join(choices + missing) + '"'
+
+
+def update_outcome(path, updates: list[OutcomeUpdate], backup_dir=None) -> tuple[list, list]:
+    """Back up, then set Outcome and append each note to Remarks. -> ([(row, update) written], [not found])
+
+    A job that isn't in the tracker exactly once is not written. Nothing found = no backup, no save."""
+    path = Path(path)
+    try:
+        wb = load_workbook(path)
+    except PermissionError as exc:
+        raise TrackerLocked(str(exc)) from exc
+    ws = wb[SHEET]
+    rows = _sheet_rows(ws)
+    written, missing = [], []
+    for u in updates:
+        r = locate(rows, u)
+        if r is None:
+            missing.append(u)
+            continue
+        ws.cell(r, 6).value = u.outcome
+        if u.note.strip():
+            ws.cell(r, 7).value = format_note(u.noted_on, u.note, ws.cell(r, 7).value)
+        written.append((r, u))
+    if written:
+        _ensure_outcome_choices(ws)
+        backup(path, backup_dir)
+        _save(wb, path)
+    wb.close()
+    return written, missing
+
+
 # ---------- writing ----------
 
 def next_row(ws) -> int:
@@ -232,6 +364,7 @@ def append_row(path, row: TrackerRow, backup_dir=None) -> int:
     ws = wb[SHEET]
     r = next_row(ws)
     _extend_table(ws, r)
+    _ensure_outcome_choices(ws)
 
     if r > 2:  # same look as the row above (hyperlink font in C, date format in E, ...)
         for col in range(1, LAST_COL + 1):
@@ -303,3 +436,45 @@ def flush_pending(path, pending_path=None, backup_dir=None, append=None) -> list
         written.append((r, rows.pop(0)))
         _write_pending(pending_path, rows)
     return written
+
+
+# ---------- pending Outcome updates (tracker open in Excel, or the Sheet unreachable) ----------
+
+def pending_updates_path_for(path) -> Path:
+    return Path(path).parent / "pending_updates.json"
+
+
+def load_pending_updates(pending_path) -> list[OutcomeUpdate]:
+    p = Path(pending_path)
+    if not p.exists():
+        return []
+    return [OutcomeUpdate.from_json(d) for d in json.loads(p.read_text(encoding="utf-8"))]
+
+
+def _write_pending_updates(pending_path, updates: list[OutcomeUpdate]) -> None:
+    p = Path(pending_path)
+    if updates:
+        p.write_text(json.dumps([u.to_json() for u in updates], indent=2), encoding="utf-8")
+    elif p.exists():
+        p.unlink()
+
+
+def save_pending_updates(pending_path, updates: list[OutcomeUpdate]) -> None:
+    _write_pending_updates(pending_path, load_pending_updates(pending_path) + list(updates))
+
+
+def flush_pending_updates(path, pending_path=None, backup_dir=None, update=None) -> tuple[list, list]:
+    """Write every pending update in one go, then empty the pending file. -> (written, not found)
+
+    `update(updates) -> (written, not found)` does the writing; the default is update_outcome on the
+    Excel file at `path`. If it raises (TrackerLocked: Excel has the file open), every update stays pending.
+    Updates whose job isn't found are reported, not kept: waiting won't make them appear.
+    """
+    pending_path = pending_path or pending_updates_path_for(path)
+    update = update or (lambda updates: update_outcome(path, updates, backup_dir))
+    updates = load_pending_updates(pending_path)
+    if not updates:
+        return [], []
+    written, missing = update(updates)
+    _write_pending_updates(pending_path, [])
+    return written, missing

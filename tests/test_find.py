@@ -1,12 +1,14 @@
 """Milestone 7: find.py search and Outcome update, on the fake tracker and a fake worksheet."""
 from datetime import date, datetime
 
+import pytest
 from openpyxl import load_workbook
 from rich.console import Console
 
 import find
 import sheet_tracker
 import tracker
+from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
 from fake_sheet import HEADER, FakeWorksheet
 
 ACME_URL = "https://acme.wd5.myworkdayjobs.com/External/job/Austin/Cloud-Engineer_R123"
@@ -128,11 +130,11 @@ def test_parse_status_by_number_or_name():
 
 def test_format_note_appends_with_date():
     day = date(2026, 10, 21)
-    assert find.format_note(day, "Phone screen", "") == "10/21/2026 Phone screen"
-    assert find.format_note(day, "Phone screen", None) == "10/21/2026 Phone screen"
-    assert find.format_note(day, " Phone screen ", "Same day rejection") == \
+    assert tracker.format_note(day, "Phone screen", "") == "10/21/2026 Phone screen"
+    assert tracker.format_note(day, "Phone screen", None) == "10/21/2026 Phone screen"
+    assert tracker.format_note(day, " Phone screen ", "Same day rejection") == \
         "Same day rejection | 10/21/2026 Phone screen"
-    assert find.format_note(day, "  ", "kept") == "kept"
+    assert tracker.format_note(day, "  ", "kept") == "kept"
 
 
 def test_rows_grouped_by_company_newest_first():
@@ -187,3 +189,113 @@ def test_table_capped_at_50():
 def test_no_matches_message():
     shown, out = show([], "acme")
     assert shown == [] and out.strip() == 'No jobs found for "acme".'
+
+
+# ---------- Excel update ----------
+
+NOTE_DAY = date(2026, 10, 21)
+
+
+def update(row_hint=KNOWN_ROW, outcome="Rejected", note="", urls=(KNOWN_URL,), company=KNOWN_COMPANY,
+           position=KNOWN_POSITION, applied=""):
+    return tracker.OutcomeUpdate(company=company, position=position, urls=list(urls), applied=applied,
+                                 row=row_hint, outcome=outcome, note=note, noted_on=NOTE_DAY)
+
+
+def cells(path, *refs):
+    ws = load_workbook(path)["Sheet1"]
+    return [ws[ref].value for ref in refs]
+
+
+def test_outcome_written_and_remark_appended_not_overwritten(dup_tracker):
+    wb = load_workbook(dup_tracker)
+    wb["Sheet1"].cell(KNOWN_ROW, 7, "Recruiter call")
+    wb.save(dup_tracker)
+    written, missing = tracker.update_outcome(dup_tracker, [update(note="Phone screen")],
+                                              dup_tracker.parent / "backups")
+    assert [r for r, _ in written] == [KNOWN_ROW] and missing == []
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == \
+        ["Rejected", "Recruiter call | 10/21/2026 Phone screen"]
+    assert len(list((dup_tracker.parent / "backups").glob("tracker-*.xlsx"))) == 1
+
+
+def test_no_note_leaves_remarks_alone(dup_tracker):
+    tracker.update_outcome(dup_tracker, [update(outcome="Online Assessment")], dup_tracker.parent / "b")
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Online Assessment", None]
+
+
+def outcome_list(path):
+    ws = load_workbook(path)["Sheet1"]
+    (dv,) = [dv for dv in ws.data_validations.dataValidation if dv.type == "list"]
+    return dv.formula1, str(dv.sqref)
+
+
+def test_interview_added_to_the_dropdown(dup_tracker):
+    assert outcome_list(dup_tracker)[0] == '"Applied,Rejected,Online Assessment"'
+    tracker.update_outcome(dup_tracker, [update(outcome="Interview")], dup_tracker.parent / "b")
+    assert outcome_list(dup_tracker) == ('"Applied,Rejected,Online Assessment,Interview"', "F2:F1000")
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Interview"]
+
+
+def test_interview_added_when_apply_writes_a_row(tracker_file):
+    tracker.append_row(tracker_file, tracker.TrackerRow("Acme", "SWE", "https://x.com/1", "Posted today-Other",
+                                                        NOTE_DAY), tracker_file.parent / "b")
+    assert outcome_list(tracker_file)[0] == '"Applied,Rejected,Online Assessment,Interview"'
+
+
+def test_row_found_again_when_the_hint_is_stale(dup_tracker):
+    written, missing = tracker.update_outcome(dup_tracker, [update(row_hint=300)], dup_tracker.parent / "b")
+    assert [r for r, _ in written] == [KNOWN_ROW] and missing == []
+    assert cells(dup_tracker, "F300", f"F{KNOWN_ROW}") == ["Applied", "Rejected"]
+
+
+def test_row_without_url_found_by_company_position_and_date(tracker_file):
+    wb = load_workbook(tracker_file)
+    ws = wb["Sheet1"]
+    for r, day in ((50, datetime(2026, 9, 1)), (60, datetime(2026, 10, 1))):
+        ws.cell(r, 1, "Zenith")
+        ws.cell(r, 2, "Developer")
+        ws.cell(r, 3).value = None
+        ws.cell(r, 3).hyperlink = None
+        ws.cell(r, 5, day)
+    wb.save(tracker_file)
+    u = update(row_hint=2, urls=(), company="Zenith", position="Developer", applied="2026-10-01")
+    written, missing = tracker.update_outcome(tracker_file, [u], tracker_file.parent / "b")
+    assert [r for r, _ in written] == [60]
+    assert cells(tracker_file, "F50", "F60") == ["Applied", "Rejected"]
+
+
+def test_ambiguous_or_missing_row_not_written(dup_tracker):
+    wb = load_workbook(dup_tracker)
+    ws = wb["Sheet1"]
+    ws.cell(KNOWN_ROW + 1, 1, KNOWN_COMPANY)
+    ws.cell(KNOWN_ROW + 1, 2, KNOWN_POSITION)
+    ws.cell(KNOWN_ROW + 1, 3, KNOWN_URL).hyperlink = KNOWN_URL
+    ws.cell(KNOWN_ROW + 1, 5, ws.cell(KNOWN_ROW, 5).value)
+    wb.save(dup_tracker)
+    before = dup_tracker.read_bytes()
+    gone = update(urls=("https://jobs.lever.co/nobody/1",), company="Nobody", position="None")
+    twins = update(row_hint=5)  # two rows with this job and no way to tell them apart
+    written, missing = tracker.update_outcome(dup_tracker, [gone, twins], dup_tracker.parent / "backups")
+    assert written == [] and missing == [gone, twins]
+    assert dup_tracker.read_bytes() == before and not (dup_tracker.parent / "backups").exists()
+
+
+def test_locked_excel_keeps_update_pending_until_next_flush(dup_tracker, monkeypatch):
+    pending = tracker.pending_updates_path_for(dup_tracker)
+    tracker.save_pending_updates(pending, [update(note="Phone screen")])
+
+    def locked(wb, path):
+        raise tracker.TrackerLocked("open in Excel")
+
+    real_save = tracker._save
+    monkeypatch.setattr(tracker, "_save", locked)
+    with pytest.raises(tracker.TrackerLocked):
+        tracker.flush_pending_updates(dup_tracker, backup_dir=dup_tracker.parent / "b")
+    assert tracker.load_pending_updates(pending) == [update(note="Phone screen")]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Applied"]
+
+    monkeypatch.setattr(tracker, "_save", real_save)
+    written, missing = tracker.flush_pending_updates(dup_tracker, backup_dir=dup_tracker.parent / "b")
+    assert [r for r, _ in written] == [KNOWN_ROW] and not pending.exists()
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Rejected", "10/21/2026 Phone screen"]
