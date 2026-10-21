@@ -71,24 +71,37 @@ def _pad(row: list, n: int) -> list:
 
 # ---------- duplicate check ----------
 
-@_guard
-def find_duplicates(ws, url: str | None = None, company: str | None = None,
-                    position: str | None = None) -> list[tuple[int, list]]:
-    """Same matching as tracker.find_duplicates, on the Sheet. -> [(row, A..F display values)]"""
-    values = ws.get_all_values()
-    check_header(values)
-    formulas = ws.get("C:C", value_render_option="FORMULA")  # =HYPERLINK("target", "text") in C
+def _job_rows(values: list[list], formulas: list[list]) -> list[tuple[int, list, list[str]]]:
+    """[(row number, A..G display values, urls in C)] like tracker.read_rows; rows with no
+    Company and no URL are skipped."""
     rows = []
     for i, raw in enumerate(values[1:], start=2):
-        a_to_f = _pad(raw, 6)
-        if not a_to_f[0] and not a_to_f[2]:
+        a_to_g = _pad(raw, 7)
+        if not a_to_g[0] and not a_to_g[2]:
             continue
-        urls = [a_to_f[2]] if a_to_f[2] else []
+        urls = [a_to_g[2]] if a_to_g[2] else []
         formula = _pad(formulas[i - 1], 1)[0] if i - 1 < len(formulas) else ""
         m = HYPERLINK_TARGET.match(str(formula))
         if m:
             urls.append(m.group(1).replace('""', '"'))
-        rows.append((i, a_to_f, urls))
+        rows.append((i, a_to_g, urls))
+    return rows
+
+
+@_guard
+def read_rows(ws) -> list[tuple[int, list, list[str]]]:
+    """Every job row of the Sheet: [(row number, A..G display values, urls in C)]."""
+    values = ws.get_all_values()
+    check_header(values)
+    formulas = ws.get("C:C", value_render_option="FORMULA")  # =HYPERLINK("target", "text") in C
+    return _job_rows(values, formulas)
+
+
+@_guard
+def find_duplicates(ws, url: str | None = None, company: str | None = None,
+                    position: str | None = None) -> list[tuple[int, list]]:
+    """Same matching as tracker.find_duplicates, on the Sheet. -> [(row, A..F display values)]"""
+    rows = [(r, values[:6], urls) for r, values, urls in read_rows(ws)]
     return tracker.match_rows(rows, url, company, position)
 
 

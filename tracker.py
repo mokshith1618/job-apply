@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from copy import copy
 from dataclasses import asdict, dataclass
@@ -91,11 +92,9 @@ def match_rows(rows, url: str | None = None, company: str | None = None,
     return hits
 
 
-def find_duplicates(path, url: str | None = None, company: str | None = None,
-                    position: str | None = None) -> list[tuple[int, list]]:
-    """Rows whose URL matches `url`, or whose company AND position both match. -> [(row, A..F values)]"""
-    wb = load_workbook(path)  # not read_only: hyperlink targets are needed too
-    ws = wb[SHEET]
+def _sheet_rows(ws) -> list[tuple[int, list, list[str]]]:
+    """Job rows of an open worksheet: [(row number, A..G values, urls in C)]. Rows with no
+    Company and no URL (stray remarks) are skipped."""
     rows = []
     for row in ws.iter_rows(min_row=2, max_col=LAST_COL):
         a, c = row[0], row[2]
@@ -104,9 +103,54 @@ def find_duplicates(path, url: str | None = None, company: str | None = None,
         urls = [str(c.value)] if c.value else []
         if c.hyperlink is not None and c.hyperlink.target:
             urls.append(c.hyperlink.target)
-        rows.append((a.row, [cell.value for cell in row[:6]], urls))
-    wb.close()
+        rows.append((a.row, [cell.value for cell in row[:7]], urls))
+    return rows
+
+
+def read_rows(path) -> list[tuple[int, list, list[str]]]:
+    """Every job row of the Excel tracker: [(row number, A..G values, urls in C)]."""
+    wb = load_workbook(path)  # not read_only: hyperlink targets are needed too
+    try:
+        return _sheet_rows(wb[SHEET])
+    finally:
+        wb.close()
+
+
+def find_duplicates(path, url: str | None = None, company: str | None = None,
+                    position: str | None = None) -> list[tuple[int, list]]:
+    """Rows whose URL matches `url`, or whose company AND position both match. -> [(row, A..F values)]"""
+    rows = [(r, values[:6], urls) for r, values, urls in read_rows(path)]
     return match_rows(rows, url, company, position)
+
+
+# ---------- search (find.py) ----------
+
+COMPANY_SUFFIXES = {"inc", "llc", "ltd", "corp", "corporation", "co", "plc", "gmbh", "lp", "llp", "ag", "sa"}
+
+
+def search_key(value) -> str:
+    """Comparable text for search: lowercase, punctuation as spaces, trailing company suffixes
+    dropped ('Acme, Inc.' -> 'acme', 'S&P Global' -> 's p global'). A name that is only a suffix stays."""
+    words = re.sub(r"[^\w]+", " ", str(value or "").casefold()).split()
+    while len(words) > 1 and words[-1] in COMPANY_SUFFIXES:
+        words.pop()
+    return " ".join(words)
+
+
+def search_rows(rows, text: str) -> list[tuple[int, list, list[str]]]:
+    """Rows from read_rows() where `text` is in the Company, the Position or a URL."""
+    key = search_key(text)
+    if not key:
+        return []
+    raw = " ".join(text.casefold().split())
+    squeezed = key.replace(" ", "")
+    hits = []
+    for r, values, urls in rows:
+        in_names = any(key in search_key(v) for v in values[:2])
+        in_urls = any(raw in u.casefold() or squeezed in u.casefold() for u in urls)
+        if in_names or in_urls:
+            hits.append((r, values, urls))
+    return hits
 
 
 # ---------- writing ----------

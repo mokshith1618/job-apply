@@ -1,6 +1,5 @@
 """Google Sheet tracker against a fake worksheet (no network), plus apply.py runs that write to both."""
 import csv
-import re
 from datetime import date
 
 import pytest
@@ -12,69 +11,12 @@ import sheet_tracker
 import tracker
 from ats.common import JobDetails
 from conftest import KNOWN_ROW, KNOWN_URL
+from fake_sheet import HEADER, FakeWorksheet
 from sheet_tracker import SheetMismatch, SheetUnavailable
 
 TODAY = date(2026, 10, 13)
 NEW_URL = "https://job-boards.greenhouse.io/acme/jobs/1234567"
-HEADER = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome",
-          "Remarks", "Experience", "Key Skills"]
 LINKED_URL = "https://jobs.lever.co/linked/abc-123"
-
-
-class FakeSpreadsheet:
-    def __init__(self):
-        self.requests = []
-
-    def batch_update(self, body):
-        self.requests.extend(body["requests"])
-
-
-class FakeWorksheet:
-    """Holds display values and C-column formulas like a gspread Worksheet, and records writes."""
-
-    def __init__(self, rows, formulas=None, row_count=1000, fail=None):
-        self.values = [list(r) for r in rows]
-        self.formulas = dict(formulas or {})  # row number -> formula in C
-        self.row_count = row_count
-        self.id = 7
-        self.spreadsheet = FakeSpreadsheet()
-        self.fail = fail
-        self.updates = []
-        self.added_rows = 0
-
-    def _check(self):
-        if self.fail:
-            raise self.fail
-
-    def get_all_values(self):
-        self._check()
-        return [list(r) for r in self.values]
-
-    def get(self, range_name, value_render_option=None):
-        self._check()
-        assert range_name == "C:C" and value_render_option == "FORMULA"
-        return [[self.formulas.get(i, (r + [""] * 3)[2])] for i, r in enumerate(self.values, start=1)]
-
-    def add_rows(self, n):
-        self._check()
-        self.row_count += n
-        self.added_rows += n
-
-    def update(self, values, range_name, value_input_option):
-        self._check()
-        assert value_input_option == "USER_ENTERED"
-        self.updates.append((range_name, values))
-        r = int(re.match(r"A(\d+):F\d+$", range_name).group(1))
-        assert r <= self.row_count, "wrote past the end of the sheet"
-        while len(self.values) < r:
-            self.values.append([""] * 9)
-        entered = values[0]
-        display = list(entered)
-        m = re.match(r'=HYPERLINK\("((?:[^"]|"")*)"', entered[2])
-        if m:
-            self.formulas[r] = entered[2]
-            display[2] = m.group(1).replace('""', '"')
-        self.values[r - 1][:6] = display
 
 
 def sample_sheet(**kwargs):
