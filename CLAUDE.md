@@ -9,6 +9,7 @@ Read SPEC.md before planning any change. Build one milestone per session.
 - Tests never call the real Google Sheet; they use a fake worksheet.
 - Tests build a fake tracker with made-up rows in a temp folder (tests/fake_tracker.py); they never open tracker_copy.xlsx or the real tracker. Experiments use tracker_copy.xlsx only. Never write to "Job Application Tracker.xlsx" unless I run apply.py myself.
 - Do not edit profile.yaml or answers.yaml values without asking me.
+- Milestone 6 (email) is parked. Never run check_mail.py and never read email content, mail logs or mail reports.
 - Commits: no `Co-Authored-By: Claude` line (or any other Claude/AI attribution) in commit messages or PR descriptions. I'm the only author.
 
 ## Stack

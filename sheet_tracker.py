@@ -71,24 +71,37 @@ def _pad(row: list, n: int) -> list:
 
 # ---------- duplicate check ----------
 
-@_guard
-def find_duplicates(ws, url: str | None = None, company: str | None = None,
-                    position: str | None = None) -> list[tuple[int, list]]:
-    """Same matching as tracker.find_duplicates, on the Sheet. -> [(row, A..F display values)]"""
-    values = ws.get_all_values()
-    check_header(values)
-    formulas = ws.get("C:C", value_render_option="FORMULA")  # =HYPERLINK("target", "text") in C
+def _job_rows(values: list[list], formulas: list[list]) -> list[tuple[int, list, list[str]]]:
+    """[(row number, A..G display values, urls in C)] like tracker.read_rows; rows with no
+    Company and no URL are skipped."""
     rows = []
     for i, raw in enumerate(values[1:], start=2):
-        a_to_f = _pad(raw, 6)
-        if not a_to_f[0] and not a_to_f[2]:
+        a_to_g = _pad(raw, 7)
+        if not a_to_g[0] and not a_to_g[2]:
             continue
-        urls = [a_to_f[2]] if a_to_f[2] else []
+        urls = [a_to_g[2]] if a_to_g[2] else []
         formula = _pad(formulas[i - 1], 1)[0] if i - 1 < len(formulas) else ""
         m = HYPERLINK_TARGET.match(str(formula))
         if m:
             urls.append(m.group(1).replace('""', '"'))
-        rows.append((i, a_to_f, urls))
+        rows.append((i, a_to_g, urls))
+    return rows
+
+
+@_guard
+def read_rows(ws) -> list[tuple[int, list, list[str]]]:
+    """Every job row of the Sheet: [(row number, A..G display values, urls in C)]."""
+    values = ws.get_all_values()
+    check_header(values)
+    formulas = ws.get("C:C", value_render_option="FORMULA")  # =HYPERLINK("target", "text") in C
+    return _job_rows(values, formulas)
+
+
+@_guard
+def find_duplicates(ws, url: str | None = None, company: str | None = None,
+                    position: str | None = None) -> list[tuple[int, list]]:
+    """Same matching as tracker.find_duplicates, on the Sheet. -> [(row, A..F display values)]"""
+    rows = [(r, values[:6], urls) for r, values, urls in read_rows(ws)]
     return tracker.match_rows(rows, url, company, position)
 
 
@@ -169,3 +182,60 @@ def append_row(ws, row: TrackerRow, backup_dir) -> int:
     ws.update(values=[row_values(row)], range_name=f"A{r}:F{r}", value_input_option="USER_ENTERED")
     ws.spreadsheet.batch_update({"requests": _format_requests(ws.id, r)})
     return r
+
+
+# ---------- Outcome updates (find.py) ----------
+
+def ensure_outcome_choices(ws) -> None:
+    """Make the Sheet's Outcome dropdown (F2's list rule) offer every value in tracker.OUTCOMES.
+    Only a plain list rule is changed; any other rule gets a note and is left alone."""
+    meta = ws.spreadsheet.fetch_sheet_metadata(params={
+        "ranges": f"'{ws.title}'!F2", "includeGridData": "true",
+        "fields": "sheets(properties.sheetId,data.rowData.values.dataValidation)"})
+    try:
+        cell = meta["sheets"][0]["data"][0]["rowData"][0]["values"][0]
+    except (KeyError, IndexError):
+        return
+    rule = cell.get("dataValidation")
+    if not rule:
+        return
+    condition = rule.get("condition", {})
+    if condition.get("type") != "ONE_OF_LIST":
+        print(f"Note: the Sheet's Outcome dropdown is a {condition.get('type')} rule; "
+              "add Interview to it by hand if it's missing.")
+        return
+    choices = [v.get("userEnteredValue", "") for v in condition.get("values", [])]
+    missing = [o for o in tracker.OUTCOMES if o not in choices]
+    if not missing:
+        return
+    new_rule = {**rule, "condition": {**condition, "values": [{"userEnteredValue": c} for c in choices + missing]}}
+    ws.spreadsheet.batch_update({"requests": [{"setDataValidation": {
+        "range": {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": ws.row_count,
+                  "startColumnIndex": 5, "endColumnIndex": 6},
+        "rule": new_rule,
+    }}]})
+
+
+@_guard
+def update_outcome(ws, updates: list[tracker.OutcomeUpdate], backup_dir) -> tuple[list, list]:
+    """Same as tracker.update_outcome, on the Sheet: check the header, back up, then write Outcome
+    (and Remarks when there's a note) row by row. -> ([(row, update) written], [not found])"""
+    values = ws.get_all_values()
+    check_header(values)
+    rows = _job_rows(values, ws.get("C:C", value_render_option="FORMULA"))
+    found = [(tracker.locate(rows, u), u) for u in updates]
+    written = [(r, u) for r, u in found if r is not None]
+    missing = [u for r, u in found if r is None]
+    if not written:
+        return written, missing
+    backup_values(values, backup_dir)
+    remarks = {r: v[6] for r, v, _ in rows}
+    for r, u in written:
+        if u.note.strip():
+            remarks[r] = tracker.format_note(u.noted_on, u.note, remarks[r])
+            ws.update(values=[[u.outcome, _text(remarks[r])]], range_name=f"F{r}:G{r}",
+                      value_input_option="USER_ENTERED")
+        else:
+            ws.update(values=[[u.outcome]], range_name=f"F{r}", value_input_option="USER_ENTERED")
+    ensure_outcome_choices(ws)
+    return written, missing
