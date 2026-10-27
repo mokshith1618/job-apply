@@ -116,22 +116,31 @@ def ask_keep(label: str, current: str, input_fn) -> str:
 
 def edit_details(row: tracker.TrackerRow, posted_date: date | None, source: str, input_fn,
                  today: date) -> tuple[tracker.TrackerRow, date | None, str]:
-    """e at the last question: change company, position, posted date or source (never the URL)."""
+    """e at the last question: change company, position, posted date or source (never the URL).
+    Text at the date question that isn't a date ('Sameday-Tsenta') is column D as typed."""
     company = ask_keep("Company", row.company, input_fn)
     position = ask_keep("Position", row.position, input_fn)
-    shown = posted_date.isoformat() if posted_date else "unknown"
+    # Column D typed by me in an earlier edit, not built from a date and source.
+    custom = None if row.posted == tracker.format_posted(posted_date, source, today) else row.posted
+    shown = custom or (posted_date.isoformat() if posted_date else "unknown")
     while True:
-        raw = input_fn(f"Posted date [{shown}] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): ").strip().lower()
+        raw = " ".join(input_fn(f"Posted date [{shown}] (YYYY-MM-DD, 'today', '-' = unknown, "
+                                "other text = as typed, Enter = keep): ").split())
         if not raw:
             break
         if raw == "-":
-            posted_date = None
+            posted_date, custom = None, None
             break
-        try:
-            posted_date = parse_posted(raw, today)
-            break
-        except ValueError:
-            pass
+        if raw.lower() == "today" or re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", raw):
+            try:
+                posted_date, custom = parse_posted(raw.lower(), today), None
+                break
+            except ValueError:
+                continue
+        custom = raw
+        break
+    if custom is not None:
+        return dataclasses.replace(row, company=company, position=position, posted=custom), posted_date, source
     typed = input_fn(f"Source [{source}] (Enter = keep): ")
     if typed.strip():
         source = normalize_source(typed)

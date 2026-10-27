@@ -123,7 +123,8 @@ def test_e_then_enter_keeps_every_value(tracker_file):
     assert script.prompts[1:5] == [
         "Company [Acme Robotics] (Enter = keep): ",
         "Position [Software Engineer I] (Enter = keep): ",
-        "Posted date [2026-10-08] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): ",
+        "Posted date [2026-10-08] (YYYY-MM-DD, 'today', '-' = unknown, "
+        "other text = as typed, Enter = keep): ",
         "Source [LinkedIn] (Enter = keep): ",
     ]
     assert script.prompts[-1] == apply.PAUSE_PROMPT  # back to the same question
@@ -143,16 +144,38 @@ def test_e_edits_reach_the_tracker(tracker_file, capsys):
 def test_e_twice_starts_from_the_edited_values(tracker_file):
     script = Script("e", "", "", "today", "", "e", "", "", "-", "Indeed", "")
     assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[8] == "Posted date [2026-10-13] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): "
+    assert script.prompts[8] == ("Posted date [2026-10-13] (YYYY-MM-DD, 'today', '-' = unknown, "
+                                 "other text = as typed, Enter = keep): ")
     assert cell(tracker_file, "D898") == "Indeed"  # no date: just the source
 
 
 def test_e_bad_date_asks_again(tracker_file, capsys):
-    script = Script("e", "", "", "Oct 8", "2026-10-09", "", "")
+    script = Script("e", "", "", "2026-13-40", "2026-10-09", "", "")
     assert run(tracker_file, NEW_URL, script) == 0
     assert script.prompts[3] == script.prompts[4]
     assert "Use YYYY-MM-DD" in capsys.readouterr().out
     assert cell(tracker_file, "D898") == "Posted October 9, 2026-Other"
+
+
+def test_e_other_text_is_column_d_as_typed(tracker_file):
+    script = Script("e", "", "", " Sameday-Tsenta ", "")  # no Source question
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert len(script.prompts) == 5
+    assert script.prompts[-1] == apply.PAUSE_PROMPT
+    assert cell(tracker_file, "D898") == "Sameday-Tsenta"
+
+
+def test_e_typed_posted_text_is_kept_by_a_later_edit(tracker_file):
+    script = Script("e", "", "", "Sameday-Tsenta", "e", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert script.prompts[7].startswith("Posted date [Sameday-Tsenta] ")
+    assert cell(tracker_file, "D898") == "Sameday-Tsenta"
+
+
+def test_e_date_after_typed_text_asks_source_again(tracker_file):
+    script = Script("e", "", "", "Sameday-Tsenta", "e", "", "", "today", "LinkedIn", "")
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert cell(tracker_file, "D898") == "Posted today-LinkedIn"
 
 
 def test_e_then_s_writes_nothing(tracker_file):

@@ -115,7 +115,10 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    `Review the form and click Submit yourself. Then press Enter = applied, s = skipped, e = edit details.`
    - `e` (optional) asks Company, Position, Posted date and Source again, each showing its
      current value: Enter keeps it, typing replaces it (`today`, `YYYY-MM-DD`, or `-` = unknown
-     for the date; the source is read like `--source`). The URL can't be edited. The row summary
+     for the date; the source is read like `--source`). Any other text at the date question
+     (e.g. `Sameday-Tsenta`) is written to column D exactly as typed, and Source isn't asked;
+     a later `e` shows that text and Enter keeps it. A `YYYY-MM-DD` that isn't a real date
+     asks again. The URL can't be edited. The row summary
      is printed again; if company or position changed, matching tracker rows are shown (no
      question). Then the same question again; `e` can be used more than once. The edits are for
      this row only (`companies.yaml` is not changed).
