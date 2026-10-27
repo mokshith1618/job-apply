@@ -36,7 +36,7 @@ Tracker: no matching link or job found.
   Posted:   Posted October 13, 2026-LinkedIn
   URL:      https://job-boards.greenhouse.io/acme/jobs/1234567
 
-Review the form and click Submit yourself. Then press Enter = applied, s = skipped.
+Review the form and click Submit yourself. Then press Enter = applied, s = skipped, e = edit details.
 Added row 900 to the Google Sheet.
 Added row 899 to Job Application Tracker.xlsx.
 ```

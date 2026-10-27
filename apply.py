@@ -38,7 +38,8 @@ DEFAULT_COMPANIES = HERE / "companies.yaml"
 DEFAULT_MATCHING = HERE / "matching.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
-PAUSE_PROMPT = "Review the form and click Submit yourself. Then press Enter = applied, s = skipped. "
+PAUSE_PROMPT = ("Review the form and click Submit yourself. "
+                "Then press Enter = applied, s = skipped, e = edit details. ")
 
 
 SOURCES = ("LinkedIn", "Tsenta", "Other")
@@ -72,17 +73,61 @@ def ask_required(label: str, input_fn, suggestion: str | None = None) -> str:
             return suggestion
 
 
+def parse_posted(raw: str, today: date) -> date:
+    """'today' or YYYY-MM-DD; ValueError (after telling me the format) otherwise."""
+    if raw == "today":
+        return today
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        print("  Use YYYY-MM-DD, e.g. 2026-10-08.")
+        raise
+
+
 def ask_posted_date(input_fn, today: date) -> date | None:
     while True:
         raw = input_fn("Posted date (YYYY-MM-DD, 'today', or blank if unknown): ").strip().lower()
         if not raw:
             return None
-        if raw == "today":
-            return today
         try:
-            return date.fromisoformat(raw)
+            return parse_posted(raw, today)
         except ValueError:
-            print("  Use YYYY-MM-DD, e.g. 2026-10-08.")
+            pass
+
+
+def ask_keep(label: str, current: str, input_fn) -> str:
+    """Enter keeps the current value, typing replaces it."""
+    return " ".join(input_fn(f"{label} [{current}] (Enter = keep): ").split()) or current
+
+
+def edit_details(row: tracker.TrackerRow, posted_date: date | None, source: str, input_fn,
+                 today: date) -> tuple[tracker.TrackerRow, date | None, str]:
+    """e at the last question: change company, position, posted date or source (never the URL)."""
+    company = ask_keep("Company", row.company, input_fn)
+    position = ask_keep("Position", row.position, input_fn)
+    shown = posted_date.isoformat() if posted_date else "unknown"
+    while True:
+        raw = input_fn(f"Posted date [{shown}] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): ").strip().lower()
+        if not raw:
+            break
+        if raw == "-":
+            posted_date = None
+            break
+        try:
+            posted_date = parse_posted(raw, today)
+            break
+        except ValueError:
+            pass
+    typed = input_fn(f"Source [{source}] (Enter = keep): ")
+    if typed.strip():
+        source = normalize_source(typed)
+    row = dataclasses.replace(row, company=company, position=position,
+                              posted=tracker.format_posted(posted_date, source, today))
+    return row, posted_date, source
+
+
+def show_row(row: tracker.TrackerRow) -> None:
+    print(f"\n  Company:  {row.company}\n  Position: {row.position}\n  Posted:   {row.posted}\n  URL:      {row.url}\n")
 
 
 def show_duplicates(hits) -> None:
@@ -351,9 +396,11 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         posted=tracker.format_posted(posted_date, args.source, today),
         applied_on=today,
     )
-    print(f"\n  Company:  {row.company}\n  Position: {row.position}\n  Posted:   {row.posted}\n  URL:      {row.url}\n")
+    show_row(row)
+    seen.update(r for r, _ in hits)
 
     session = None if args.no_fill else open_form(fill or FILLERS.get(system), url, args, input_fn)
+    source = args.source
     try:
         while True:
             answer = input_fn(PAUSE_PROMPT).strip().lower()
@@ -362,6 +409,17 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
                 return 0
             if answer == "":
                 break
+            if answer == "e":
+                before = (row.company, row.position)
+                row, posted_date, source = edit_details(row, posted_date, source, input_fn, today)
+                show_row(row)
+                # A new company or position: show any match, don't ask (as for a typed one above).
+                if (row.company, row.position) != before:
+                    hits = [h for h in sheet.find_duplicates(tracker_path, company=row.company,
+                                                             position=row.position) if h[0] not in seen]
+                    if hits:
+                        show_duplicates(hits)
+                        seen.update(r for r, _ in hits)
     finally:
         if session is not None:
             session.close()
