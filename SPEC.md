@@ -107,7 +107,13 @@ python find.py <text>                  # search the tracker, change Outcome (mil
      terminal, and ask me for the answer. Offer to save it to `answers.yaml`.
    - Unknown optional field: leave blank and list it at the end.
 6. **Pause.** Print a summary (filled, skipped, needs attention) and:
-   `Review the form and click Submit yourself. Then press Enter = applied, s = skipped.`
+   `Review the form and click Submit yourself. Then press Enter = applied, s = skipped, e = edit details.`
+   - `e` (optional) asks Company, Position, Posted date and Source again, each showing its
+     current value: Enter keeps it, typing replaces it (`today`, `YYYY-MM-DD`, or `-` = unknown
+     for the date; the source is read like `--source`). The URL can't be edited. The row summary
+     is printed again; if company or position changed, matching tracker rows are shown (no
+     question). Then the same question again; `e` can be used more than once. The edits are for
+     this row only (`companies.yaml` is not changed).
 7. **Write the tracker row** only if I pressed Enter.
 
 ## Job facts card (milestone 1d)
@@ -139,7 +145,7 @@ no summarizing, no shortening, no verdicts, no symbols, no scores. I decide. Rul
    pending file count too (pending files are written only when I press Enter = applied).
    Matching rows print under the card; otherwise `Tracker: no matching link or job found.`
 4. No question here. Then: missing-detail questions, form filling, and the single question
-   at the end (Enter = applied, s = skipped). `s` writes nothing.
+   at the end (Enter = applied, s = skipped, e = edit details). `s` writes nothing.
 
 `--check` prints the card and the duplicate check and exits, for looking at a link without
 applying. A missing tracker file is only a note there.

@@ -74,6 +74,50 @@ def test_s_skips_without_writing(tracker_file):
     assert not (tracker_file.parent / "backups").exists()
 
 
+def test_e_then_enter_keeps_every_value(tracker_file):
+    script = Script("e", "", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
+    assert script.prompts[1:5] == [
+        "Company [Acme Robotics] (Enter = keep): ",
+        "Position [Software Engineer I] (Enter = keep): ",
+        "Posted date [2026-10-08] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): ",
+        "Source [LinkedIn] (Enter = keep): ",
+    ]
+    assert script.prompts[-1] == apply.PAUSE_PROMPT  # back to the same question
+    assert [cell(tracker_file, r) for r in ("A898", "B898", "C898", "D898")] == [
+        "Acme Robotics", "Software Engineer I", NEW_URL, "Posted October 8, 2026-LinkedIn"]
+
+
+def test_e_edits_reach_the_tracker(tracker_file, capsys):
+    script = Script("e", " Acme ", "Backend Engineer", "2026-10-01", "tsenta", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
+    assert [cell(tracker_file, r) for r in ("A898", "B898", "C898", "D898")] == [
+        "Acme", "Backend Engineer", NEW_URL, "Posted October 1, 2026-Tsenta"]
+    assert "Company:  Acme\n  Position: Backend Engineer\n  Posted:   Posted October 1, 2026-Tsenta" \
+        in capsys.readouterr().out  # the summary again, before the question
+
+
+def test_e_twice_starts_from_the_edited_values(tracker_file):
+    script = Script("e", "", "", "today", "", "e", "", "", "-", "Indeed", "")
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert script.prompts[8] == "Posted date [2026-10-13] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): "
+    assert cell(tracker_file, "D898") == "Indeed"  # no date: just the source
+
+
+def test_e_bad_date_asks_again(tracker_file, capsys):
+    script = Script("e", "", "", "Oct 8", "2026-10-09", "", "")
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert script.prompts[3] == script.prompts[4]
+    assert "Use YYYY-MM-DD" in capsys.readouterr().out
+    assert cell(tracker_file, "D898") == "Posted October 9, 2026-Other"
+
+
+def test_e_then_s_writes_nothing(tracker_file):
+    before = tracker_file.read_bytes()
+    assert run(tracker_file, NEW_URL, Script("e", "Other Co", "", "", "", "s")) == 0
+    assert tracker_file.read_bytes() == before
+
+
 class Recorder(Script):
     """A Script that also keeps what was printed before each prompt."""
 
@@ -84,6 +128,16 @@ class Recorder(Script):
     def __call__(self, prompt=""):
         self.printed.append(self.capsys.readouterr().out)
         return super().__call__(prompt)
+
+
+def test_e_company_position_matching_a_row_is_shown_not_asked(dup_tracker, capsys):
+    tracker_file = dup_tracker
+    before = tracker_file.read_bytes()
+    script = Recorder(capsys, "e", KNOWN_COMPANY, KNOWN_POSITION, "", "", "s")
+    assert run(tracker_file, NEW_URL, script) == 0
+    assert script.prompts[-1] == apply.PAUSE_PROMPT and len(script.prompts) == 6  # no extra question
+    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in script.printed[-1]
+    assert tracker_file.read_bytes() == before
 
 
 def test_duplicate_url_is_shown_with_the_card(dup_tracker, capsys):
