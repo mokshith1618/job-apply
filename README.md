@@ -114,9 +114,11 @@ won't write into the wrong sheet.
 ## Usage
 
 ```
-python apply.py <job-url> [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
-python apply.py <job-url> --check
+python apply.py [<job-url>] [--source LinkedIn|Tsenta|Other] [--tracker PATH] [--no-sheet] [--no-fill]
+python apply.py [<job-url>] --check
 ```
+
+Leave the link out and it asks `Job link: `: paste it with Ctrl+V and press Enter (no quotes needed).
 
 | Option | Meaning |
 |---|---|
