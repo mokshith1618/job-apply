@@ -90,7 +90,9 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    - Still missing: ask me in the terminal. Company and position guesses from `og:site_name`,
      `og:title`, `<h1>` and `<title>` are offered as defaults (Enter accepts). A JSON-LD company
      that needs tidying ("JPMC Candidate Experience page", Workday's "2100 NVIDIA USA") is also
-     only a guess. The posted date is never guessed.
+     only a guess. The posted date is never guessed. At the posted-date question I can type
+     `today`, `YYYY-MM-DD`, blank (unknown), or any other text (e.g. `Sameday - Tsenta`), which
+     goes to column D exactly as typed. A `YYYY-MM-DD` that isn't a real date asks again.
    - Company still missing (e.g. HPE's Workday leaves it blank everywhere): use the name I gave
      this careers site before, from `companies.yaml`. Otherwise ask me, suggesting the name in
      the link (`hpe.wd5.myworkdayjobs.com` -> `HPE`), and save my answer for the site. Only

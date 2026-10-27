@@ -321,9 +321,36 @@ def test_missing_details_are_asked(tracker_file):
     assert run(tracker_file, "https://example.com/job/9", script, fetch=lambda u: JobDetails(),
                extra=["--source", "Tsenta"]) == 0
     assert script.prompts[:3] == ["Company: ", "Position: ",
-                                  "Posted date (YYYY-MM-DD, 'today', or blank if unknown): "]
+                                  "Posted date (YYYY-MM-DD, 'today', other text = as typed, "
+                                  "or blank if unknown): "]
     assert cell(tracker_file, "A898") == "Beta Corp"
     assert cell(tracker_file, "D898") == "Posted today-Tsenta"
+
+
+def no_date(url):
+    return JobDetails("Acme Robotics", "Software Engineer I")
+
+
+def test_missing_date_text_is_column_d_as_typed(tracker_file):
+    script = Script(" Sameday  - Tsenta ", "")
+    assert run(tracker_file, NEW_URL, script, fetch=no_date, extra=["--source", "Tsenta"]) == 0
+    assert len(script.prompts) == 2  # no Source question
+    assert cell(tracker_file, "D898") == "Sameday - Tsenta"
+
+
+def test_missing_date_text_is_kept_by_e(tracker_file):
+    script = Script("Sameday - Tsenta", "e", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script, fetch=no_date) == 0
+    assert script.prompts[4].startswith("Posted date [Sameday - Tsenta] ")
+    assert cell(tracker_file, "D898") == "Sameday - Tsenta"
+
+
+def test_missing_date_not_a_real_date_asks_again(tracker_file, capsys):
+    script = Script("2026-13-40", "", "")
+    assert run(tracker_file, NEW_URL, script, fetch=no_date, extra=["--source", "LinkedIn"]) == 0
+    assert script.prompts[0] == script.prompts[1]
+    assert "Use YYYY-MM-DD" in capsys.readouterr().out
+    assert cell(tracker_file, "D898") == "LinkedIn"  # blank = unknown: just the source
 
 
 def test_guesses_are_offered_not_used_silently(tracker_file):
