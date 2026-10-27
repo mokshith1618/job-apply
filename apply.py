@@ -1,7 +1,8 @@
 """Job Apply Helper entry point.
 
-    python apply.py <job-url> [--source LinkedIn|Tsenta|Other|any name] [--tracker PATH] [--no-sheet] [--no-fill]
-    python apply.py <job-url> --check      (print the job facts card and exit)
+    python apply.py [<job-url>] [--source LinkedIn|Tsenta|Other|any name] [--tracker PATH] [--no-sheet] [--no-fill]
+    python apply.py [<job-url>] --check      (print the job facts card and exit)
+    No link given: it asks for it, so I paste it without quotes.
 
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
 Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
@@ -82,6 +83,19 @@ def parse_posted(raw: str, today: date) -> date:
     except ValueError:
         print("  Use YYYY-MM-DD, e.g. 2026-10-08.")
         raise
+
+
+def ask_link(input_fn) -> str:
+    """The link pasted at a prompt: spaces and one pair of quotes around it are removed."""
+    while True:
+        link = input_fn("Job link: ").strip()
+        if len(link) > 1 and link[0] == link[-1] and link[0] in "\"'":
+            link = link[1:-1].strip()
+        if not link:
+            continue
+        if link.lower().startswith(("http://", "https://")):
+            return link
+        print("  Paste the full link (starting with https://).")
 
 
 def ask_posted_date(input_fn, today: date) -> date | None:
@@ -331,7 +345,7 @@ def read_details(url: str) -> ats.JobDetails:
 def main(argv=None, input_fn=input, fetch=read_details, today: date | None = None, sheet_ws=None,
          fill=None) -> int:
     parser = argparse.ArgumentParser(description="Read a job, fill the form, wait for me to apply, then log it.")
-    parser.add_argument("url")
+    parser.add_argument("url", nargs="?", help="job link; asked for if left out")
     parser.add_argument("--source", type=normalize_source, default="Other",
                         help="LinkedIn, Tsenta or Other (any case); any other name is kept as typed")
     parser.add_argument("--tracker", type=Path, help="local Excel tracker (default: local_tracker in config.yaml)")
@@ -345,7 +359,14 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     parser.add_argument("--matching", type=Path, default=DEFAULT_MATCHING)
     args = parser.parse_args(argv)
     today = today or date.today()
-    url = args.url.strip()
+    if args.url:
+        url = args.url.strip()
+    else:
+        try:
+            url = ask_link(input_fn)
+        except (KeyboardInterrupt, EOFError):
+            print("\nStopped.")
+            return 1
 
     # The job facts card comes first: before any question, the tracker or the browser.
     keywords = job_facts.load_keywords(args.matching)

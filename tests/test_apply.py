@@ -74,6 +74,49 @@ def test_s_skips_without_writing(tracker_file):
     assert not (tracker_file.parent / "backups").exists()
 
 
+def run_no_link(tracker_file, script, extra=()):
+    return apply.main(["--tracker", str(tracker_file), *extra], input_fn=script, fetch=fetch_ok, today=TODAY)
+
+
+def test_no_link_asks_for_it(tracker_file):
+    script = Script(NEW_URL, "")
+    assert run_no_link(tracker_file, script, extra=["--source", "Tsenta"]) == 0
+    assert script.prompts == ["Job link: ", apply.PAUSE_PROMPT]
+    assert cell(tracker_file, "C898") == NEW_URL
+    assert cell(tracker_file, "D898") == "Posted October 8, 2026-Tsenta"
+
+
+def test_pasted_link_blank_and_quotes(tracker_file):
+    url = NEW_URL + "?gh_jid=1&x=2"
+    script = Script("", f"  '{url}'  ", "")
+    assert run_no_link(tracker_file, script) == 0
+    assert script.prompts == ["Job link: ", "Job link: ", apply.PAUSE_PROMPT]
+    assert cell(tracker_file, "C898") == url
+
+
+def test_pasted_text_that_is_not_a_link_asks_again(tracker_file, capsys):
+    script = Script("acme", NEW_URL, "s")
+    assert run_no_link(tracker_file, script) == 0
+    assert script.prompts[:2] == ["Job link: ", "Job link: "]
+    assert "Paste the full link" in capsys.readouterr().out
+
+
+def test_check_without_link_asks_then_shows_the_card(tracker_file, capsys):
+    before = tracker_file.read_bytes()
+    script = Script(NEW_URL)
+    assert run_no_link(tracker_file, script, extra=["--check"]) == 0
+    assert script.prompts == ["Job link: "]
+    assert "Acme Robotics" in capsys.readouterr().out
+    assert tracker_file.read_bytes() == before
+
+
+def test_ctrl_c_at_the_link_stops(tracker_file, capsys):
+    def interrupt(prompt=""):
+        raise KeyboardInterrupt
+    assert apply.main(["--tracker", str(tracker_file)], input_fn=interrupt, fetch=fetch_ok, today=TODAY) == 1
+    assert "Stopped." in capsys.readouterr().out
+
+
 def test_e_then_enter_keeps_every_value(tracker_file):
     script = Script("e", "", "", "", "", "")
     assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0

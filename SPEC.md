@@ -16,10 +16,15 @@ to my Excel tracker.
 ## Usage
 
 ```
-python apply.py <job-url> [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
-python apply.py <job-url> --check      # print the job facts card and exit
+python apply.py [<job-url>] [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
+python apply.py [<job-url>] --check      # print the job facts card and exit
 python find.py <text>                  # search the tracker, change Outcome (milestone 7)
 ```
+
+No link on the command line: it asks `Job link: ` and I paste it (no quotes needed for `&` in
+PowerShell). Blank asks again; surrounding spaces and quotes are removed; anything not starting
+with `http://` or `https://` gets `Paste the full link (starting with https://).` and asks again.
+Ctrl+C or end of input there prints `Stopped.`. This is the only question before the card.
 
 ## Flow
 
