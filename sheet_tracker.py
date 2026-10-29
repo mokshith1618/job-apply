@@ -14,7 +14,7 @@ from pathlib import Path
 import tracker
 from tracker import TrackerRow
 
-HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome"]  # A..F, the columns written
+HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage"]  # A..G, checked before writing
 DATE_PATTERN = tracker.DATE_FORMAT  # M/d/yyyy, same as the Excel file
 SHEET_GROWTH = 100  # rows added when the sheet has no empty row left
 HYPERLINK_TARGET = re.compile(r'^=HYPERLINK\(\s*"((?:[^"]|"")*)"', re.IGNORECASE)
@@ -72,25 +72,25 @@ def _pad(row: list, n: int) -> list:
 # ---------- duplicate check ----------
 
 def _job_rows(values: list[list], formulas: list[list]) -> list[tuple[int, list, list[str]]]:
-    """[(row number, A..G display values, urls in C)] like tracker.read_rows; rows with no
+    """[(row number, A..H display values, urls in C)] like tracker.read_rows; rows with no
     Company and no URL are skipped."""
     rows = []
     for i, raw in enumerate(values[1:], start=2):
-        a_to_g = _pad(raw, 7)
-        if not a_to_g[0] and not a_to_g[2]:
+        a_to_h = _pad(raw, tracker.REMARKS_COL)
+        if not a_to_h[0] and not a_to_h[2]:
             continue
-        urls = [a_to_g[2]] if a_to_g[2] else []
+        urls = [a_to_h[2]] if a_to_h[2] else []
         formula = _pad(formulas[i - 1], 1)[0] if i - 1 < len(formulas) else ""
         m = HYPERLINK_TARGET.match(str(formula))
         if m:
             urls.append(m.group(1).replace('""', '"'))
-        rows.append((i, a_to_g, urls))
+        rows.append((i, a_to_h, urls))
     return rows
 
 
 @_guard
 def read_rows(ws) -> list[tuple[int, list, list[str]]]:
-    """Every job row of the Sheet: [(row number, A..G display values, urls in C)]."""
+    """Every job row of the Sheet: [(row number, A..H display values, urls in C)]."""
     values = ws.get_all_values()
     check_header(values)
     formulas = ws.get("C:C", value_render_option="FORMULA")  # =HYPERLINK("target", "text") in C
@@ -100,8 +100,8 @@ def read_rows(ws) -> list[tuple[int, list, list[str]]]:
 @_guard
 def find_duplicates(ws, url: str | None = None, company: str | None = None,
                     position: str | None = None) -> list[tuple[int, list]]:
-    """Same matching as tracker.find_duplicates, on the Sheet. -> [(row, A..F display values)]"""
-    rows = [(r, values[:6], urls) for r, values, urls in read_rows(ws)]
+    """Same matching as tracker.find_duplicates, on the Sheet. -> [(row, A..G display values)]"""
+    rows = [(r, values[:tracker.STAGE_COL], urls) for r, values, urls in read_rows(ws)]
     return tracker.match_rows(rows, url, company, position)
 
 
@@ -152,7 +152,7 @@ def row_values(row: TrackerRow) -> list[str]:
 
 
 def _format_requests(sheet_id: int, r: int) -> list[dict]:
-    """Copy format + data validation (Outcome dropdown, date check) from row r-1 to row r,
+    """Copy format + data validation (Outcome and Stage dropdowns, date check) from row r-1 to row r,
     then give E the M/d/yyyy date format. Rows here are 1-based; the API's are 0-based."""
     def grid(row):
         return {"sheetId": sheet_id, "startRowIndex": row - 1, "endRowIndex": row,
@@ -186,11 +186,12 @@ def append_row(ws, row: TrackerRow, backup_dir) -> int:
 
 # ---------- Outcome updates (find.py) ----------
 
-def ensure_outcome_choices(ws) -> None:
-    """Make the Sheet's Outcome dropdown (F2's list rule) offer every value in tracker.OUTCOMES.
-    Only a plain list rule is changed; any other rule gets a note and is left alone."""
+def ensure_choices(ws, col: int, name: str, wanted) -> None:
+    """Make the Sheet's dropdown on column `col` (its row-2 list rule) offer every one of `wanted`.
+    Only a plain list rule is changed, and only by adding; any other rule gets a note and is left alone."""
+    letter = "ABCDEFGHIJ"[col - 1]
     meta = ws.spreadsheet.fetch_sheet_metadata(params={
-        "ranges": f"'{ws.title}'!F2", "includeGridData": "true",
+        "ranges": f"'{ws.title}'!{letter}2", "includeGridData": "true",
         "fields": "sheets(properties.sheetId,data.rowData.values.dataValidation)"})
     try:
         cell = meta["sheets"][0]["data"][0]["rowData"][0]["values"][0]
@@ -201,25 +202,30 @@ def ensure_outcome_choices(ws) -> None:
         return
     condition = rule.get("condition", {})
     if condition.get("type") != "ONE_OF_LIST":
-        print(f"Note: the Sheet's Outcome dropdown is a {condition.get('type')} rule; "
-              "add Interview to it by hand if it's missing.")
+        print(f"Note: the Sheet's {name} dropdown is a {condition.get('type')} rule; "
+              f"check it offers {', '.join(wanted)}.")
         return
     choices = [v.get("userEnteredValue", "") for v in condition.get("values", [])]
-    missing = [o for o in tracker.OUTCOMES if o not in choices]
+    missing = [o for o in wanted if o not in choices]
     if not missing:
         return
     new_rule = {**rule, "condition": {**condition, "values": [{"userEnteredValue": c} for c in choices + missing]}}
     ws.spreadsheet.batch_update({"requests": [{"setDataValidation": {
         "range": {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": ws.row_count,
-                  "startColumnIndex": 5, "endColumnIndex": 6},
+                  "startColumnIndex": col - 1, "endColumnIndex": col},
         "rule": new_rule,
     }}]})
+
+
+def ensure_dropdowns(ws) -> None:
+    ensure_choices(ws, tracker.OUTCOME_COL, "Outcome", tracker.OUTCOMES)
+    ensure_choices(ws, tracker.STAGE_COL, "Stage", tracker.STAGES)
 
 
 @_guard
 def update_outcome(ws, updates: list[tracker.OutcomeUpdate], backup_dir) -> tuple[list, list]:
     """Same as tracker.update_outcome, on the Sheet: check the header, back up, then write Outcome
-    (and Remarks when there's a note) row by row. -> ([(row, update) written], [not found])"""
+    (and Stage / Remarks when given) row by row. -> ([(row, update) written], [not found])"""
     values = ws.get_all_values()
     check_header(values)
     rows = _job_rows(values, ws.get("C:C", value_render_option="FORMULA"))
@@ -229,13 +235,16 @@ def update_outcome(ws, updates: list[tracker.OutcomeUpdate], backup_dir) -> tupl
     if not written:
         return written, missing
     backup_values(values, backup_dir)
-    remarks = {r: v[6] for r, v, _ in rows}
+    current = {r: v for r, v, _ in rows}  # kept up to date, so a second update to a row builds on the first
     for r, u in written:
+        stage = current[r][6] = u.stage or current[r][6]
         if u.note.strip():
-            remarks[r] = tracker.format_note(u.noted_on, u.note, remarks[r])
-            ws.update(values=[[u.outcome, _text(remarks[r])]], range_name=f"F{r}:G{r}",
+            remarks = current[r][7] = tracker.format_note(u.noted_on, u.note, current[r][7])
+            ws.update(values=[[u.outcome, stage, _text(remarks)]], range_name=f"F{r}:H{r}",
                       value_input_option="USER_ENTERED")
+        elif u.stage:
+            ws.update(values=[[u.outcome, u.stage]], range_name=f"F{r}:G{r}", value_input_option="USER_ENTERED")
         else:
             ws.update(values=[[u.outcome]], range_name=f"F{r}", value_input_option="USER_ENTERED")
-    ensure_outcome_choices(ws)
+    ensure_dropdowns(ws)
     return written, missing

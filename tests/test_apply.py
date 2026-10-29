@@ -472,3 +472,13 @@ def test_check_shows_the_duplicate_and_writes_nothing(dup_tracker, capsys):
 def test_card_without_a_description(tracker_file, capsys):
     assert run(tracker_file, NEW_URL, Script("s")) == 0  # fetch_ok has no description
     assert "Description: not available" in capsys.readouterr().out
+
+
+def test_duplicate_line_shows_stage_only_when_set(capsys):
+    apply.show_duplicates([
+        (412, ["Acme", "SWE I", "https://x.com/1", "Posted today-Other", "10/3/2026", "Awaiting reply", "Interview"]),
+        ("pending_rows.json", ["Acme", "SWE II", "https://x.com/2", "Posted today-Other", "10/4/2026", "Applied", ""]),
+    ])
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[2] == "  row 412: Acme | SWE I | Posted today-Other | 10/3/2026 | Awaiting reply | Interview"
+    assert lines[4] == "  pending_rows.json: Acme | SWE II | Posted today-Other | 10/4/2026 | Applied"

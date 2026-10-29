@@ -164,10 +164,11 @@ def show_row(row: tracker.TrackerRow) -> None:
 def show_duplicates(hits) -> None:
     print("\nAlready in the tracker:")
     for row, values in hits:
-        company, position, url, posted, applied, outcome = ("" if v is None else v for v in values)
+        company, position, url, posted, applied, outcome, stage = ("" if v is None else v for v in values)
         applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
         where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
-        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
+        stage = f" | {stage}" if stage else ""
+        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}{stage}\n           {url}")
 
 
 def load_config(path: Path) -> dict:
