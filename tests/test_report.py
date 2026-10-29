@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from fake_sheet import HEADER, FakeWorksheet
 from fake_tracker import SHUFFLED, make_tracker
-from reporting import derive, load
+from reporting import derive, load, metrics
 from reporting.load import Job, Settings
 
 TODAY = date(2026, 10, 28)  # a Wednesday: this week is Oct 26-28, last week Oct 19-25
@@ -234,3 +234,210 @@ def test_facts_of_a_row():
 def test_facts_with_unknown_dates():
     f = derive.facts(job(applied=None, last_updated=None), S, TODAY)
     assert f.age is None and f.since_update is None and not f.responded and f.group == "No news"
+
+
+# ---------- metrics ----------
+
+def F(**kw) -> derive.Facts:
+    return derive.facts(job(**kw), S, TODAY)
+
+
+def d(month, day, year=2026):
+    return date(year, month, day)
+
+
+def test_change_text():
+    assert metrics.change_text(19, 6) == "↑ 13 from last week"
+    assert metrics.change_text(2, 5) == "↓ 3 from last week"
+    assert metrics.change_text(4, 4) == "same as last week"
+
+
+@pytest.mark.parametrize("r, n, text", [
+    (5, 128, "5 of 128 (3.9%)"), (1, 20, "1 of 20 (5%)"), (0, 25, "0 of 25 (0%)"), (3, 12, "3 of 12"),
+])
+def test_rate_text(r, n, text):
+    assert metrics.rate_text(r, n, 20) == text
+
+
+WEEK_ROWS = [
+    F(company="A", applied=d(10, 26)), F(company="B", applied=d(10, 28)), F(company="C", applied=d(10, 28)),
+    F(company="D", applied=d(10, 19)), F(company="E", applied=d(10, 25)),  # last week
+    F(company="F", applied=d(10, 18)), F(company="G", applied=None),
+    F(company="Delta", applied=d(10, 1), outcome="Awaiting reply", stage="Interview", last_updated=d(10, 27)),
+    F(company="Zeta", applied=d(10, 2), outcome="In progress", stage="Online Assessment", last_updated=d(10, 25)),
+    F(company="Eta", applied=d(9, 2), outcome="Awaiting reply", stage="Initial Screening"),  # no Last Updated
+]
+
+
+def test_this_week():
+    week = metrics.this_week(WEEK_ROWS, TODAY)
+    assert (week.applications, week.last_week, week.in_progress, week.awaiting) == (3, 2, 1, 2)
+    assert [f.job.company for f in week.new_responses] == ["Delta"]
+
+
+def test_summary_sentences():
+    assert metrics.summary(WEEK_ROWS, S, TODAY) == [
+        "This week: 3 applications (target 25, last week 2). 1 new response: Delta (Interview).",
+        "1 in progress and 2 awaiting reply.",
+    ]
+
+
+def test_summary_leaves_out_empty_sentences():
+    assert metrics.summary([], S, TODAY) == ["This week: 0 applications (target 25, last week 0). No new responses."]
+    one = [F(applied=d(10, 27))]
+    assert metrics.summary(one, S, TODAY)[0] == (
+        "This week: 1 application (target 25, last week 0). No new responses.")
+
+
+def _source_rows(source, n, responded, applied=d(1, 5)):
+    return [F(company=f"{source} {i}", posted=f"Posted today-{source}", applied=applied,
+              outcome="Rejected", stage="Interview" if i < responded else "") for i in range(n)]
+
+
+def test_summary_best_source():
+    rows = _source_rows("Tsenta", 20, 2) + _source_rows("Jobright", 25, 2) + _source_rows("LinkedIn", 5, 3)
+    assert metrics.summary(rows, S, TODAY) == [
+        "This week: 0 applications (target 25, last week 0). No new responses.",
+        "Best source so far: Tsenta, 2 responses from 20 applications.",  # 10% beats 8%; LinkedIn too few
+    ]
+
+
+def test_summary_no_best_source_with_one_response():
+    rows = _source_rows("Tsenta", 30, 1)
+    assert len(metrics.summary(rows, S, TODAY)) == 1
+
+
+def test_summary_two_new_responses():
+    rows = [F(company="Acme", stage="Interview", outcome="In progress", last_updated=d(10, 26)),
+            F(company="Zen", stage="Online Assessment", outcome="Awaiting reply", last_updated=d(10, 28))]
+    assert metrics.summary(rows, S, TODAY)[0].endswith(
+        "2 new responses: Acme (Interview), Zen (Online Assessment).")
+
+
+ATTENTION_ROWS = [
+    F(company="Beta", outcome="In progress", stage="Online Assessment", last_updated=d(10, 25)),
+    F(company="Gamma", outcome="In progress", stage="Interview", last_updated=d(10, 18)),
+    F(company="Nu", outcome="In progress", stage="Interview"),
+    F(company="Omicron", outcome="Awaiting reply", stage="Initial Screening", last_updated=d(10, 10)),
+    F(company="Delta", outcome="Awaiting reply", stage="Interview", last_updated=d(10, 1)),
+    F(company="Zeta", outcome="Awaiting reply", stage="Online Assessment", last_updated=d(10, 20)),  # 8 days: fine
+    F(company="Epsilon", outcome="Awaiting reply", stage="Initial Screening"),
+    *[F(company="Acme Inc" if i < 3 else "Acme", applied=d(9, 1 + i)) for i in range(5)],
+    *[F(company="Pi", applied=d(9, 1 + i)) for i in range(4)],
+    F(company="Pi", outcome="Rejected", stage="Online Assessment"),  # one response: not flagged
+    *[F(company="Rho", applied=d(9, 1 + i)) for i in range(4)],  # only 4
+]
+
+
+def test_attention_order():
+    assert metrics.attention(ATTENTION_ROWS, S, TODAY) == [
+        "Gamma: Interview to do since 10 days",
+        "Beta: Online Assessment to do since 3 days",
+        "Nu: Interview to do",
+        "Delta: Interview, no reply for 27 days",
+        "Omicron: Initial Screening, no reply for 18 days",
+        "Epsilon: Initial Screening, waiting (date unknown)",
+        "Acme: 5 applications, no response",
+    ]
+
+
+def test_attention_cap():
+    lines = metrics.attention(ATTENTION_ROWS, S, TODAY)
+    shown, more = metrics.cap(lines)
+    assert shown == lines[:5] and more == lines[5:]
+    assert metrics.cap(["a"]) == (["a"], [])
+    assert metrics.attention([F()], S, TODAY) == []
+
+
+def test_weekly_series():
+    rows = [F(applied=d(10, 26), stage="Interview", outcome="Awaiting reply"), F(applied=d(10, 28)),
+            F(applied=d(10, 19)), F(applied=d(8, 10)), F(applied=d(8, 9)), F(applied=None)]
+    weeks = metrics.weekly(rows, S, TODAY)
+    assert len(weeks) == 12
+    assert weeks[0] == metrics.Week(d(8, 10), 1, 0)
+    assert weeks[-2] == metrics.Week(d(10, 19), 1, 0)
+    assert weeks[-1] == metrics.Week(d(10, 26), 2, 1)
+    assert sum(w.applications for w in weeks) == 4
+
+
+def test_monthly_table():
+    rows = ([F(applied=d(9, 1 + i)) for i in range(17)]
+            + [F(applied=d(9, 20), outcome="Rejected", stage="Interview"),
+               F(applied=d(9, 21), outcome="Rejected"), F(applied=d(9, 22), outcome="Rejected")]
+            + [F(applied=d(10, 2)), F(applied=d(10, 3), outcome="In progress", stage="Interview")]
+            + [F(applied=d(7, 4)), F(applied=None)])
+    assert metrics.monthly(rows, S) == [
+        metrics.Month(d(10, 1), 2, 1, 0, "1 of 2"),
+        metrics.Month(d(9, 1), 20, 1, 3, "1 of 20 (5%)"),
+        metrics.Month(d(7, 1), 1, 0, 0, "0 of 1"),
+    ]
+
+
+def test_responses_newest_first():
+    rows = [F(company="Old", applied=d(8, 1), stage="Interview", outcome="Rejected"),
+            F(company="None", applied=None, stage="Interview", outcome="Awaiting reply"),
+            F(company="New", applied=d(10, 1), stage="Online Assessment", outcome="In progress"),
+            F(company="No stage", applied=d(10, 20))]
+    assert [f.job.company for f in metrics.responses(rows)] == ["New", "Old", "None"]
+
+
+def test_top_companies():
+    rows = ([F(company="Acme Inc" if i % 2 else "Acme", applied=d(10, 16 + i)) for i in range(6)]  # last Oct 21
+            + [F(company="Beta", applied=d(10, 18)), F(company="Beta", applied=d(10, 19)),
+               F(company="Beta", applied=d(10, 20), outcome="In progress", stage="Online Assessment")]
+            + [F(company="Gamma", applied=d(10, 20)), F(company="Gamma", applied=d(10, 21), outcome="Rejected"),
+               F(company="Gamma", applied=d(10, 22), outcome="Rejected", stage="Interview")]
+            + [F(company=f"S{i}", applied=d(10, i)) for i in range(1, 10)]
+            + [F(company="", applied=d(10, 27))])
+    top = metrics.top_companies(rows, S)
+    assert [c.name for c in top] == ["Acme Inc", "Gamma", "Beta", "S9", "S8", "S7", "S6", "S5", "S4", "S3"]
+    assert top[0] == metrics.CompanyRow("Acme Inc", 6, 0, 0, 0, d(10, 21), "muted")  # name of the newest row
+    assert top[1] == metrics.CompanyRow("Gamma", 3, 1, 0, 2, d(10, 22), "green")
+    assert top[2] == metrics.CompanyRow("Beta", 3, 1, 1, 0, d(10, 20), "green")
+    assert top[3] == metrics.CompanyRow("S9", 1, 0, 0, 0, d(10, 9), "")
+
+
+def test_no_reply():
+    rows = [F(company="A", applied=d(9, 27)), F(company="B", applied=d(9, 28)),  # 31 days / exactly 30
+            F(company="C", applied=d(8, 5)), F(company="D", applied=d(8, 20)),
+            F(company="E", applied=d(8, 1), outcome="Rejected"),
+            F(company="F", applied=d(7, 1), outcome="Awaiting reply", stage="Interview"),
+            F(company="G", applied=d(7, 1), stage="Interview"), F(company="H", applied=None)]
+    total, months = metrics.no_reply(rows, S, TODAY)
+    assert total == 3
+    assert [(m, [f.job.company for f in fs]) for m, fs in months] == [(d(9, 1), ["A"]), (d(8, 1), ["D", "C"])]
+
+
+def test_details_tables():
+    rows = ([F(posted="Posted today-Jobright", outcome="Rejected", stage="Interview" if i < 2 else "")
+             for i in range(3)]
+            + [F(posted="Posted today-Jobright") for _ in range(17)]
+            + [F(posted="Posted today-Tsenta", remarks="no visa"), F(posted="Posted today-Tsenta")])
+    tables = dict(metrics.details(rows, S))
+    assert list(tables) == ["Source", "Job system", "Title level", "Title type", "Remark tags"]
+    assert tables["Source"] == [metrics.GroupRow("Jobright", 20, 2, "10%", 3),
+                                metrics.GroupRow("Tsenta", 2, 0, "too few to compare", 0)]
+    assert tables["Remark tags"] == [metrics.GroupRow("No sponsorship", 1, 0, "too few to compare", 0)]
+    assert tables["Job system"] == [metrics.GroupRow("Lever", 22, 2, "9.1%", 3)]
+
+
+def test_data_check():
+    rows = [F(row=2, company="Ok"),
+            F(row=3, company="NoPos", position=""),
+            F(row=4, company="NoUrl", url=""),
+            F(row=5, company="NoSrc", posted="Posted today"),
+            F(row=6, company="Formula", url_is_formula=True),
+            F(row=7, company="Old", outcome="Applied", stage="Interview"),
+            F(row=8, company="Stuck", outcome="In progress"),
+            F(row=9, company="Other", posted="Posted today-Other")]
+    issues = metrics.data_check(rows, S, excel=True)
+    assert [(name, [(f.job.row, f.job.company) for f in fs]) for name, fs in issues] == [
+        ("Blank Position", [(3, "NoPos")]),
+        ("Blank URL", [(4, "NoUrl")]),
+        ("No source found in Posted date/ Source", [(5, "NoSrc")]),
+        ("URL stored as a formula", [(6, "Formula")]),
+        ("Stage set but Outcome Applied", [(7, "Old")]),
+        ("In progress with no Stage", [(8, "Stuck")]),
+    ]
+    assert "URL stored as a formula" not in dict(metrics.data_check(rows, S, excel=False))
+    assert metrics.data_check([F()], S, excel=True) == []
