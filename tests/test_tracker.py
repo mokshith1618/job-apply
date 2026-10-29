@@ -7,12 +7,11 @@ from openpyxl import load_workbook
 
 import tracker
 from conftest import KNOWN_COMPANY, KNOWN_POSITION, KNOWN_ROW, KNOWN_URL
+from fake_tracker import HEADERS, SHUFFLED, letter_of, make_tracker
 from tracker import TrackerRow
 
 TODAY = date(2026, 10, 13)
 EXPECTED_ROW = 898  # first row after the last Company value (fake_tracker.LAST_ROW + 1, as in SPEC.md)
-HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage",
-           "Remarks", "Experience", "Key Skills"]
 ASHBY_ROW = KNOWN_ROW
 ASHBY_URL = KNOWN_URL + "?utm_source=LinkedInPaid"
 
@@ -63,8 +62,11 @@ def test_new_row_lands_at_898_with_right_values_and_formats(tracker_file):
     assert f_dv and f_dv[0].type == "list"
     assert "Applied" in f_dv[0].formula1.split(",")[0]
     assert dv_covering(ws, "E898")  # date check still applies
-    # G, H, I empty
-    assert [ws.cell(898, c).value for c in (7, 8, 9)] == [None, None, None]
+    # Last Updated = the day applied, as a real date
+    assert ws["H898"].value.date() == TODAY and ws["H898"].number_format == "M/d/yyyy"
+    assert dv_covering(ws, "H898")
+    # Stage, Remarks, Experience, Key Skills empty
+    assert [ws.cell(898, c).value for c in (7, 9, 10, 11)] == [None, None, None, None]
     # nothing else moved
     assert [c.value for c in ws[897]] == row_897_before
     assert company_rows(tracker_file) == count_before + 1
@@ -93,9 +95,9 @@ def test_saved_file_is_structurally_intact(tracker_file):
     assert wb.sheetnames == ["Sheet1"]
     ws = wb["Sheet1"]
     table = ws.tables["Table1"]
-    assert table.ref == "A1:J1000"
+    assert table.ref == "A1:K1000"
     assert [col.name for col in table.tableColumns] == HEADERS
-    assert [c.value for c in ws[1]][:10] == HEADERS
+    assert [c.value for c in ws[1]][:11] == HEADERS
     assert table.tableStyleInfo.name == style_before
     assert {dv.type for dv in ws.data_validations.dataValidation} == {"list", "custom"}
     assert ws.freeze_panes == "A2"
@@ -145,7 +147,7 @@ def test_opens_in_real_excel(tracker_file):
     assert seen["outcome"] == "Applied"
     assert seen["outcome_validation"] == 3  # xlValidateList: Outcome dropdown
     assert seen["tables"] == 1
-    assert seen["table_range"] == "$A$1:$J$1000"
+    assert seen["table_range"] == "$A$1:$K$1000"
 
 
 # ---------- Done when: the duplicate check catches a URL already in the tracker ----------
@@ -153,7 +155,7 @@ def test_opens_in_real_excel(tracker_file):
 def test_duplicate_exact_url(dup_tracker):
     hits = tracker.find_duplicates(dup_tracker, url=ASHBY_URL)
     assert [r for r, _ in hits] == [ASHBY_ROW]
-    assert hits[0][1][0] == KNOWN_COMPANY
+    assert hits[0][1]["Company"] == KNOWN_COMPANY
 
 
 @pytest.mark.parametrize("variant", [
@@ -217,10 +219,10 @@ def test_default_backup_dir_is_next_to_tracker(tracker_file):
 
 
 def test_table_and_validations_extend_when_full(tracker_file):
-    """Shrink Table1 and the E/F validations to end at row 897, then append: they must grow."""
+    """Shrink Table1 and the validations to end at row 897, then append: they must grow."""
     wb = load_workbook(tracker_file)
     ws = wb["Sheet1"]
-    ws.tables["Table1"].ref = "A1:I897"
+    ws.tables["Table1"].ref = "A1:K897"
     for dv in ws.data_validations.dataValidation:
         col = str(dv.sqref)[0]
         dv.sqref = tracker.MultiCellRange(f"{col}2:{col}897")
@@ -229,10 +231,10 @@ def test_table_and_validations_extend_when_full(tracker_file):
     r = tracker.append_row(tracker_file, new_row())
     assert r == EXPECTED_ROW
     ws = load_workbook(tracker_file)["Sheet1"]
-    assert ws.tables["Table1"].ref == f"A1:I{EXPECTED_ROW + tracker.TABLE_GROWTH}"
-    assert dv_covering(ws, "F898")[0].type == "list"
-    assert dv_covering(ws, "E898")[0].type == "custom"
-    assert dv_covering(ws, f"F{EXPECTED_ROW + tracker.TABLE_GROWTH}")
+    assert ws.tables["Table1"].ref == f"A1:K{EXPECTED_ROW + tracker.TABLE_GROWTH}"
+    for col, kind in (("E", "custom"), ("F", "list"), ("G", "list"), ("H", "custom")):
+        assert dv_covering(ws, f"{col}898")[0].type == kind
+        assert dv_covering(ws, f"{col}{EXPECTED_ROW + tracker.TABLE_GROWTH}")
 
 
 def test_locked_tracker_keeps_row_pending_then_flushes(tracker_file, monkeypatch):
@@ -266,3 +268,58 @@ def test_pending_row_round_trip(tmp_path):
     rows = tracker.load_pending(p)
     assert [r.company for r in rows] == ["Acme Robotics", "B"]
     assert rows[0].applied_on == TODAY
+
+
+# ---------- columns by header name (milestone 8) ----------
+
+def test_column_map_ignores_order_case_and_spaces():
+    cols = tracker.column_map(["remarks", " OUTCOME", "Posted date /Source", "Url", "company", "Last  updated",
+                               "Date", "Stage ", "Position", "Notes"])
+    assert cols == {"Remarks": 1, "Outcome": 2, "Posted date/ Source": 3, "URL": 4, "Company": 5,
+                    "Last Updated": 6, "Date": 7, "Stage": 8, "Position": 9}  # Experience, Key Skills optional
+
+
+def test_column_map_names_every_missing_header():
+    with pytest.raises(tracker.TrackerLayoutError, match="Last Updated, Remarks"):
+        tracker.column_map(HEADERS[:7])
+
+
+def remove_header(path, header):
+    wb = load_workbook(path)
+    wb["Sheet1"].cell(1, HEADERS.index(header) + 1).value = "Notes"
+    wb.save(path)
+
+
+def test_missing_header_in_excel_stops_before_writing(tracker_file):
+    remove_header(tracker_file, "Last Updated")
+    before = tracker_file.read_bytes()
+    with pytest.raises(tracker.TrackerLayoutError, match="Last Updated"):
+        tracker.check_layout(tracker_file)
+    with pytest.raises(tracker.TrackerLayoutError):
+        tracker.append_row(tracker_file, new_row(), backup_dir=tracker_file.parent / "backups")
+    assert tracker_file.read_bytes() == before and not (tracker_file.parent / "backups").exists()
+    tracker.check_layout(make_tracker(tracker_file.parent / "ok.xlsx"))  # a complete header passes
+
+
+def test_shuffled_columns_append_and_read(tmp_path):
+    path = make_tracker(tmp_path / "shuffled.xlsx", SHUFFLED)
+    tracker.check_layout(path)
+    r = tracker.append_row(path, new_row(), backup_dir=tmp_path / "backups")
+    assert r == EXPECTED_ROW
+    ws = load_workbook(path)["Sheet1"]
+
+    def at(header):
+        return ws[f"{letter_of(header, SHUFFLED)}{r}"]
+
+    assert at("Company").value == "Acme Robotics" and at("Position").value == "Software Engineer I"
+    assert at("URL").value == at("URL").hyperlink.target == "https://job-boards.greenhouse.io/acme/jobs/1234567"
+    assert at("Posted date/ Source").value == "Posted today-Tsenta" and at("Outcome").value == "Applied"
+    for header in ("Date", "Last Updated"):
+        assert at(header).value.date() == TODAY and at(header).number_format == "M/d/yyyy"
+    assert [at(h).value for h in ("Stage", "Remarks", "Experience", "Key Skills")] == [None] * 4
+
+    rows = {row: values for row, values, _ in tracker.read_rows(path)}
+    assert rows[r]["Company"] == "Acme Robotics" and rows[r]["Outcome"] == "Applied"
+    assert rows[2]["Position"] == "Role 2"
+    hits = tracker.find_duplicates(path, url="https://job-boards.greenhouse.io/acme/jobs/1234567?gh_src=x")
+    assert [row for row, _ in hits] == [r]

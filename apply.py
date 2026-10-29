@@ -164,7 +164,9 @@ def show_row(row: tracker.TrackerRow) -> None:
 def show_duplicates(hits) -> None:
     print("\nAlready in the tracker:")
     for row, values in hits:
-        company, position, url, posted, applied, outcome, stage = ("" if v is None else v for v in values)
+        company, position, url, posted, applied, outcome, stage = (
+            "" if values[f] is None else values[f]
+            for f in ("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage"))
         applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
         where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
         stage = f" | {stage}" if stage else ""
@@ -197,7 +199,11 @@ class Sheet:
         self.backup_dir = backup_dir
 
     def failed(self, exc: Exception) -> None:
-        print(f"Google Sheet unavailable: {exc}")
+        if isinstance(exc, SheetMismatch):  # said on every run until the header is fixed
+            print(f"Warning: the Google Sheet's {exc}. Nothing is written to the Sheet until that header is "
+                  f"back; rows wait in {self.pending.name} and updates in {self.pending_updates.name}.")
+        else:
+            print(f"Google Sheet unavailable: {exc}")
         self.ws = None
 
     def flush_pending(self) -> None:
@@ -298,6 +304,16 @@ def write_row(tracker_path: Path, row: tracker.TrackerRow, input_fn) -> int:
         except tracker.TrackerLocked:
             input_fn(f"\n{tracker_path.name} is open in Excel (row saved in {pending.name}). "
                      "Close Excel, then press Enter to retry. ")
+
+
+def layout_ok(tracker_path: Path) -> bool:
+    """Row 1 of the Excel tracker has every required header. If not, say which and write nothing."""
+    try:
+        tracker.check_layout(tracker_path)
+    except tracker.TrackerLayoutError as exc:
+        print(f"\n{tracker_path.name}: {exc}. Fix the header row; nothing was written.")
+        return False
+    return True
 
 
 def open_sheet(config: dict, tracker_path: Path, no_sheet: bool, ws=None, fallback: str | None = None) -> Sheet:
@@ -403,6 +419,8 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     tracker_path = tracker_path_for(args.tracker, config)
     if not tracker_path.exists():
         print(f"\nTracker not found: {tracker_path}")
+        return 0 if args.check else 2
+    if not layout_ok(tracker_path):
         return 0 if args.check else 2
     sheet = open_sheet(config, tracker_path, args.no_sheet, sheet_ws)
     # Page guesses count here too: this only reads, and a match is worth seeing before I decide.

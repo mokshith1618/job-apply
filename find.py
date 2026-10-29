@@ -72,12 +72,12 @@ def order_rows(rows):
     """Group by company (search_key), groups by their newest date, rows newest first; no date last."""
     def newest_first(item):
         r, values, _ = item
-        d = tracker.parse_date(values[4])
+        d = tracker.parse_date(values["Date"])
         return (d is None, -(d.toordinal() if d else 0), -r)
 
     groups: dict[str, list] = {}
     for item in sorted(rows, key=newest_first):
-        groups.setdefault(tracker.search_key(item[1][0]), []).append(item)
+        groups.setdefault(tracker.search_key(item[1]["Company"]), []).append(item)
     return [item for group in groups.values() for item in group]  # dicts keep the first-seen order
 
 
@@ -106,11 +106,12 @@ def show_table(console: Console, hits, text: str) -> list:
     for name in ("#", "Row", "Date", "Company", "Position", "Outcome", "Stage", "Remarks", "Link"):
         table.add_column(name, overflow="fold", justify="right" if name in ("#", "Row") else "left")
     for i, (r, values, urls) in enumerate(shown, start=1):
-        d = tracker.parse_date(values[4])
-        outcome, stage = _cell(values[5]), _cell(values[6])
-        table.add_row(str(i), str(r), f"{d:%m/%d/%Y}" if d else _cell(values[4]), Text(_cell(values[0])),
-                      Text(_cell(values[1])), Text(outcome, style=OUTCOME_STYLES.get(outcome, "")),
-                      Text(stage, style=STAGE_STYLES.get(stage, "")), Text(_cell(values[7])), _link(urls))
+        d = tracker.parse_date(values["Date"])
+        outcome, stage = _cell(values["Outcome"]), _cell(values["Stage"])
+        table.add_row(str(i), str(r), f"{d:%m/%d/%Y}" if d else _cell(values["Date"]),
+                      Text(_cell(values["Company"])), Text(_cell(values["Position"])),
+                      Text(outcome, style=OUTCOME_STYLES.get(outcome, "")),
+                      Text(stage, style=STAGE_STYLES.get(stage, "")), Text(_cell(values["Remarks"])), _link(urls))
     console.print(table)
     if len(ordered) > MAX_SHOWN:
         console.print(f"\n{len(ordered) - MAX_SHOWN} more not shown; narrow the search.", highlight=False)
@@ -132,8 +133,7 @@ def _read(sheet: apply.Sheet, tracker_path: Path) -> tuple[list, Path]:
 
 def _waiting(pending_path: Path, text: str) -> int:
     """How many rows still waiting in a pending rows file match the search (they can't be updated yet)."""
-    rows = [(0, [r.company, r.position, r.url, r.posted, r.applied_on, tracker.OUTCOME, "", ""], [r.url])
-            for r in tracker.load_pending(pending_path)]
+    rows = [(0, r.values(), [r.url]) for r in tracker.load_pending(pending_path)]
     return len(tracker.search_rows(rows, text))
 
 
@@ -172,6 +172,8 @@ def main(argv=None, input_fn=input, sheet_ws=None, today: date | None = None, co
     tracker_path = apply.tracker_path_for(args.tracker, config)
     if not tracker_path.exists():
         print(f"Tracker not found: {tracker_path}")
+        return 2
+    if not apply.layout_ok(tracker_path):
         return 2
     sheet = apply.open_sheet(config, tracker_path, args.no_sheet, sheet_ws,
                              fallback=f"Searching {tracker_path.name} instead.")

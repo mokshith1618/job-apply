@@ -475,9 +475,14 @@ def test_card_without_a_description(tracker_file, capsys):
 
 
 def test_duplicate_line_shows_stage_only_when_set(capsys):
+    def values(*cells):
+        return dict(zip(("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage"), cells))
+
     apply.show_duplicates([
-        (412, ["Acme", "SWE I", "https://x.com/1", "Posted today-Other", "10/3/2026", "Awaiting reply", "Interview"]),
-        ("pending_rows.json", ["Acme", "SWE II", "https://x.com/2", "Posted today-Other", "10/4/2026", "Applied", ""]),
+        (412, values("Acme", "SWE I", "https://x.com/1", "Posted today-Other", "10/3/2026", "Awaiting reply",
+                     "Interview")),
+        ("pending_rows.json", values("Acme", "SWE II", "https://x.com/2", "Posted today-Other", "10/4/2026",
+                                     "Applied", "")),
     ])
     lines = capsys.readouterr().out.splitlines()
     assert lines[2] == "  row 412: Acme | SWE I | Posted today-Other | 10/3/2026 | Awaiting reply | Interview"
