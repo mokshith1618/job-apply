@@ -1,0 +1,19 @@
+# Settings for report.py (milestone 9). No personal data; a key left out keeps its default.
+weekly_target: 25          # applications per week
+follow_up_days: 14         # Awaiting reply older than this (by Last Updated) = follow up
+no_reply_days: 30          # Applied, no Stage, older than this = no reply
+many_applications: 5       # this many applications to one company = flagged
+min_group: 20              # groups smaller than this show counts only, no rate
+weeks_shown: 12
+sources: [Jobright, Tsenta, LinkedIn]        # matched in column D, case-insensitive
+early_career_words: [new grad, graduate, grad, early career, entry, junior, jr, residency,
+                     associate, university, " I", " 1", intern]
+title_types:               # first type with a word in the title; else Other
+  Backend: [backend, back-end, back end, api]
+  DevOps/Cloud/SRE/Platform: [devops, sre, reliability, platform, infrastructure, cloud]
+  AI/ML/Data: [ai, machine learning, ml, data]
+  Software (general): [software, developer, sde, swe, engineer]
+remark_tags:
+  No sponsorship: [sponsor, visa]
+  Clearance/citizenship: [clearance, citizen]
+  Referral: [referral, referred]
