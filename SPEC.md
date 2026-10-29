@@ -328,7 +328,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | `companies.yaml` | company name per careers site, saved the first time I type it |
 | `matching.yaml` | keyword lists for the job facts card (and my skills list, not used yet) |
 | `report.py` | the read-only report page (milestone 9) |
-| `reporting/` | the report's parts: `load.py`, `derive.py`, `metrics.py`, `render.py` |
+| `reporting/` | the report's parts: `load.py`, `derive.py`, `metrics.py`, `render.py`, `templates/`, `static/` |
 | `report.yaml` | report settings (in git, no personal data) |
 | `report.html` | the generated page (gitignored, never published) |
 | `tracker_copy.xlsx` | copy of the tracker for manual experiments. Tests build their own fake tracker (`tests/fake_tracker.py`). |
@@ -704,7 +704,9 @@ imported instead of it.
 | `reporting/load.py` | settings; rows read-only by header name (`tracker.read_rows` / `sheet_tracker.read_rows`), handles `=HYPERLINK` |
 | `reporting/derive.py` | derived fields, small pure functions |
 | `reporting/metrics.py` | summary values, this week, attention list, weekly and monthly series, responses, top companies, no-reply, details, data check |
-| `reporting/render.py` | HTML (string templates, `html.escape`; no Jinja2), SVG chart |
+| `reporting/render.py` | fills the page template: values and chart geometry, no markup; embeds the CSS in a `<style>` block so the page stays one file |
+| `reporting/templates/report.html.j2` | the page as a Jinja2 template, autoescape on (every tracker text escaped) |
+| `reporting/static/report.css` | all CSS; colors, spacing, font sizes and radii as variables at the top |
 | `report.yaml` | settings |
 
 ### Done when

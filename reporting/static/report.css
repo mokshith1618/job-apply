@@ -1,0 +1,55 @@
+/* The report page's styles. Tokens first: change a look here, not in the rules below. */
+:root {
+  color-scheme: light dark;
+  /* colors: neutral, then one per meaning */
+  --bg: #fbfbfa; --card: #ffffff; --text: #24292f; --muted: #6a737d; --line: #e4e4e2; --bar: #c9ced6;
+  --green: #2f855a; --blue: #2b6cb0; --red: #b35c5c; --grey: #8a9099;
+  /* spacing */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 28px;
+  /* font sizes */
+  --text-sm: 0.88rem; --text-table: 0.92rem; --text-base: 16px; --text-lg: 1.05rem; --text-h2: 1.1rem;
+  --text-h1: 1.4rem; --text-chart: 11px;
+  /* radii */
+  --radius-sm: 2px; --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181b; --card: #1e2125; --text: #e3e5e8; --muted: #9aa1aa; --line: #2e3238; --bar: #4a515b;
+    --green: #68b78b; --blue: #7aa7dd; --red: #d08b8b; --grey: #8d949e;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: var(--text-base)/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: var(--space-5) var(--space-4) 48px; }
+h1 { font-size: var(--text-h1); margin: 0 0 var(--space-3); }
+h2 { font-size: var(--text-h2); margin: 0 0 10px; display: inline; }
+section { margin: var(--space-6) 0; }
+section > h2 { display: block; }
+.summary p { margin: var(--space-1) 0; font-size: var(--text-lg); }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-4) 18px; }
+.card section, .cards section { margin: 0; }
+.stat { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) 0; }
+.stat b { font-weight: 600; }
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { padding: 3px 0; }
+table { border-collapse: collapse; width: 100%; font-size: var(--text-table); margin: var(--space-2) 0; }
+th, td { text-align: left; padding: 5px var(--space-2); border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; }
+summary { cursor: pointer; padding: 2px 0; }
+details details { margin-left: var(--space-4); }
+.note, footer, .muted-text { color: var(--muted); font-size: var(--text-sm); }
+.response { color: var(--green); } .progress { color: var(--blue); }
+.rejected { color: var(--red); } .none { color: var(--grey); }
+tr.green td:first-child { box-shadow: inset 3px 0 var(--green); }
+tr.muted td { color: var(--muted); }
+a { color: inherit; }
+svg { width: 100%; height: auto; display: block; }
+svg text { fill: var(--muted); font-size: var(--text-chart); }
+svg .bar { fill: var(--bar); } svg .dot { fill: var(--green); }
+svg .target { stroke: var(--muted); stroke-dasharray: 4 4; }
+@media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
