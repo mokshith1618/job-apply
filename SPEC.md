@@ -19,6 +19,7 @@ to my Excel tracker.
 python apply.py [<job-url>] [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
 python apply.py [<job-url>] --check      # print the job facts card and exit
 python find.py <text>                  # search the tracker, change Outcome / Stage (milestones 7, 8)
+python report.py [--sheet] [--out PATH] [--no-open] [--today YYYY-MM-DD]   # read-only report page (milestone 9)
 ```
 
 No link on the command line: it asks `Job link: ` and I paste it (no quotes needed for `&` in
@@ -326,6 +327,10 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | `answers.yaml` | saved answers to custom questions, grows over time |
 | `companies.yaml` | company name per careers site, saved the first time I type it |
 | `matching.yaml` | keyword lists for the job facts card (and my skills list, not used yet) |
+| `report.py` | the read-only report page (milestone 9) |
+| `reporting/` | the report's parts: `load.py`, `derive.py`, `metrics.py`, `render.py` |
+| `report.yaml` | report settings (in git, no personal data) |
+| `report.html` | the generated page (gitignored, never published) |
 | `tracker_copy.xlsx` | copy of the tracker for manual experiments. Tests build their own fake tracker (`tests/fake_tracker.py`). |
 | `tests/` | pytest tests |
 
@@ -366,8 +371,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 7. **Search and update status** (`find.py`). See "Milestone 7" below.
 8. **Tracker layout and status model:** columns by header name, Last Updated, In progress,
    two questions in find.py. See "Milestone 8" below. (Done 2026-10-28; real run checked by me.)
-9. **Report page** (`report.py`): a read-only page of the tracker. Drafted in `SPEC-report.md`;
-   merged here when it is built.
+9. **Report page** (`report.py`): a read-only page of the tracker. See "Milestone 9" below.
 
 ## Milestone 7: Search by company and update status
 
@@ -540,6 +544,188 @@ Update 2 rows: In progress · Online Assessment? [y/N]
 - One real run (by me) on my tracker: `find.py` on one company, set In progress + Online
   Assessment with a note, then check Excel and the Sheet: F, G, H (today) and I (note) are right.
 - README and SPEC.md tracker format updated to the new layout and model.
+
+## Milestone 9: Report page (`report.py`)
+
+### Purpose
+
+I can read the tracker in Excel, but it's tiring. The report shows the same information in a
+calm, predictable page: the most important things first, few numbers, plain sentences,
+details only when I open them. It only reads the tracker; it never writes (no backups, no
+pending files written or flushed).
+
+### Usage
+
+```
+python report.py [--sheet] [--out PATH] [--no-open] [--today YYYY-MM-DD] [--tracker PATH]
+```
+- Reads the local Excel tracker from `config.yaml` (`local_tracker`) by default, read-only.
+  `--tracker` works as in apply.py. `--sheet` reads the Google Sheet instead. (The Sheet in
+  config is currently the test copy.)
+- Writes one self-contained `report.html` (default: in the project folder) and opens it in
+  the default browser unless `--no-open`.
+- `--today` is for tests and checking past weeks.
+- The tracker can't be read (missing, open and locked, a required header missing): a message
+  naming the problem, exit code 2, no page written.
+- `report.html` is in `.gitignore`. Never published or uploaded anywhere.
+
+### Settings: `report.yaml` (in git, no personal data)
+
+```yaml
+weekly_target: 25          # applications per week
+follow_up_days: 14         # Awaiting reply older than this (by Last Updated) = follow up
+no_reply_days: 30          # Applied, no Stage, older than this = no reply
+many_applications: 5       # this many applications to one company = flagged
+min_group: 20              # groups smaller than this show counts only, no rate
+weeks_shown: 12
+sources: [Jobright, Tsenta, LinkedIn]        # matched in column D, case-insensitive
+early_career_words: [new grad, graduate, grad, early career, entry, junior, jr, residency,
+                     associate, university, " I", " 1", intern]
+title_types:
+  Backend: [backend, back-end, back end, api]
+  DevOps/Cloud/SRE/Platform: [devops, sre, reliability, platform, infrastructure, cloud]
+  AI/ML/Data: [ai, machine learning, ml, data]
+  Software (general): [software, developer, sde, swe, engineer]
+remark_tags:
+  No sponsorship: [sponsor, visa]
+  Clearance/citizenship: [clearance, citizen]
+  Referral: [referral, referred]
+```
+The code holds the same values as defaults: no `report.yaml` uses them all, a key left out
+uses its default. Tests use the defaults or their own file, never mine.
+Title type = first type whose word appears (whole word, case-insensitive), else "Other".
+Early career = any of its words in the title (whole word; " I" and " 1" only as the last
+word, e.g. "Software Engineer I").
+
+### Derived fields (computed in memory, never written back)
+
+| Field | Rule |
+|---|---|
+| Source | first of `sources` found in column D (whole word); else "Other" |
+| Job system | `ats.detect_system(url)` from the app |
+| Title level | Early career / Other |
+| Title type | see settings |
+| Responded | Stage is not blank |
+| Status group | In progress / Awaiting reply / Rejected after response / Rejected / No news (Applied, no Stage) |
+| Age | days since Date |
+| Since update | days since Last Updated (blank if unknown) |
+| Remark tags | `remark_tags` words found in Remarks |
+| Company key | the same normalization as `find.py` search (Acme Inc = Acme) |
+
+URL from the hyperlink target, or from an `=HYPERLINK("url", ...)` formula, or the cell text.
+Weeks run Monday to Sunday; "last week" is the previous full week.
+
+### Page layout (always in this order, same every time)
+
+Top of the page fits on one screen without scrolling: sections 1-3.
+
+**1. Summary: three plain sentences**
+Templates, filled from the data; a sentence is left out if it has nothing to say:
+- `This week: {n} applications (target {target}, last week {n_last}). {responses_text}.`
+  where responses_text = `No new responses` / `{k} new response(s): {Company} ({Stage}), ...`
+  (new = Last Updated in this week and Stage set; if Last Updated is blank, not counted).
+- `{p} in progress and {a} awaiting reply.` (left out if both 0)
+- `Best source so far: {source}, {r} responses from {n} applications.` Only if that
+  source has n ≥ min_group and at least 2 responses; otherwise left out.
+
+**2. This week** (card)
+Applications this week (Monday to today) with the change from last full week
+(`19 · ↑ 13 from last week`), responses this week, rows in progress, rows awaiting reply.
+
+**3. Needs your attention** (card, at most 5 lines, then `+N more` expandable)
+In this order:
+1. **Your turn:** every In progress row: `{Company}: {Stage} to do` (+ `since {n} days` if
+   Last Updated known), oldest first.
+2. **Follow up:** Awaiting reply rows with Last Updated older than `follow_up_days`:
+   `{Company}: {Stage}, no reply for {n} days`. Awaiting reply rows with no Last Updated:
+   `{Company}: {Stage}, waiting (date unknown)`.
+3. **Many applications:** companies with ≥ `many_applications` applications and no response:
+   `{Company}: {n} applications, no response`.
+Nothing to show: `Nothing needs your attention.`
+
+**4. Weekly** (last `weeks_shown` weeks, ending with the current week)
+Bar chart: applications per week (by Date), a dot on each bar for applications from that
+week that got a response, a dashed line at `weekly_target`. Week labels `Oct 20`. Exact
+numbers on hover (SVG `<title>`) and in a small table under a "Show numbers" toggle.
+
+**5. Monthly** (table, newest first)
+Month · Applications · Responses · Rejected · Response rate. Response rate as
+`5 of 128 (3.9%)`; when applications < `min_group`, counts only.
+
+**6. Your responses** (table, every row with a Stage, newest applied first)
+Company · Position · Source · Job system · Applied · Stage · Outcome · Last Updated.
+Heading shows the count: `Your responses (12)`.
+
+**7. Top 10 companies, with outcomes**
+By number of applications (ties: most recent application first).
+Company · Applications · Responses · In progress/Awaiting · Rejected · Last applied.
+Rows with any response marked green; rows with ≥ `many_applications` and no response marked
+muted.
+
+**8. No reply after {no_reply_days} days** (collapsed by default)
+Count line always visible: `412 applications with no reply after 30 days.`
+Expanded: count per month, and under each month a collapsed list (Company · Position · Applied).
+
+**9. More details** (collapsed by default)
+For Source, Job system, Title level, Title type, Remark tags: a table each with
+Group · Applications · Responses · Rate · Rejection notices. Rate only when applications ≥
+`min_group`, else `too few to compare`. Column note: "Rejection notices show how often
+companies tell you, not how well you did."
+
+**10. Data check** (collapsed; heading shows the count of issues)
+Rows with: blank Position, blank URL, no source found in D (D naming `Other`, as apply.py
+writes it, counts as a source), URL stored as a formula (Excel only: every app-written Sheet
+row is a `=HYPERLINK` formula by design), Stage set but Outcome Applied (old model: should be
+In progress or Awaiting reply), Outcome In progress with no Stage. Each issue: count + list
+(row number, Company).
+
+Footer: `Generated {date time} from {file name} · {n} rows`.
+
+### Look and feel
+
+- One HTML file, inline CSS, charts as inline SVG. **No JavaScript libraries and no external
+  files, fonts or requests.** Collapsible parts with `<details>`.
+- System font, max width about 960px, generous spacing, one column on narrow windows.
+- Light and dark mode follow the system (`prefers-color-scheme`), colors as CSS variables.
+- Color only carries meaning: green = response, blue = in progress, muted red = rejected,
+  grey = no news. Everything else neutral.
+- Numbers rounded (1.3%, not 1.29%); dates `Oct 20` in charts, `10/20/2026` in tables.
+- Job links in tables are clickable and open in a new tab, shown as the domain only.
+- All text from the tracker is HTML-escaped.
+
+### Code structure
+
+The package is `reporting/`, not `report/`: a `report/` folder next to `report.py` would be
+imported instead of it.
+
+| File | Job |
+|---|---|
+| `report.py` | entry point and options |
+| `reporting/load.py` | settings; rows read-only by header name (`tracker.read_rows` / `sheet_tracker.read_rows`), handles `=HYPERLINK` |
+| `reporting/derive.py` | derived fields, small pure functions |
+| `reporting/metrics.py` | summary values, this week, attention list, weekly and monthly series, responses, top companies, no-reply, details, data check |
+| `reporting/render.py` | HTML (string templates, `html.escape`; no Jinja2), SVG chart |
+| `report.yaml` | settings |
+
+### Done when
+
+- Tests on the fake tracker (new layout) with added rows: Jobright/Tsenta/LinkedIn sources,
+  In progress and Awaiting reply rows with and without Last Updated, rejected after a
+  stage, one company with 6 applications, a `=HYPERLINK` URL, a blank position. Fixed
+  `--today`. Tests check exact values for: every derived field, summary sentences (including
+  left-out sentences), this-week numbers and change, attention list order and the 5 cap,
+  weekly and monthly series, top 10 order, no-reply counts, `too few to compare`, data check.
+- Render test: the HTML has every section heading in order, escapes `<script>` from a
+  tracker cell, and contains no `<script src`, `<link`, `@import` or `http` request other than
+  job links in tables.
+- `report.py` never opens the tracker for writing (test: file modified time unchanged).
+- `pytest` and `ruff check .` pass.
+- One real run on my tracker; I check the page against the spreadsheet.
+
+### Out of scope
+
+Email, AI, writing to the tracker, charts by job system or title type beyond the tables in
+More details, publishing the page anywhere.
 
 ## Out of scope
 
