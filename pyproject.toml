@@ -9,4 +9,5 @@ extend-exclude = [".venv", "browser-profile", "backups"]
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["apply", "ats", "sheet_tracker", "tracker", "conftest", "fake_tracker", "fake_sheet", "find"]
+known-first-party = ["apply", "ats", "sheet_tracker", "tracker", "conftest", "fake_tracker", "fake_sheet", "find",
+                     "report", "reporting"]

@@ -25,3 +25,6 @@ __pycache__/
 gmail-client.json
 gmail-token.json
 mail_log.jsonl
+
+# Report page (milestone 9): generated from my tracker, never in git
+report.html

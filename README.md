@@ -166,6 +166,29 @@ needs a Stage, so Enter doesn't keep it when a picked row has none. A note is ad
 Remarks with today's date, after what's already there. Writes go to the Google Sheet, then
 the Excel file, with a backup first, like `apply.py`.
 
+## Report page (`report.py`)
+
+```
+python report.py [--sheet] [--out PATH] [--no-open] [--today YYYY-MM-DD] [--tracker PATH]
+```
+
+Reads the tracker, **never writes to it**, and makes `report.html` (gitignored), a calm page
+that opens in your browser: three summary sentences, this week, what needs your attention,
+applications per week and month, every response, your top 10 companies, applications with no
+reply, more details by source, job system and title, and a data check. One file with no
+scripts and no outside requests; light and dark follow your system.
+
+| Option | Meaning |
+|---|---|
+| `--sheet` | read the Google Sheet instead of the Excel file |
+| `--out` | where to write the page (an `.html` file; default `report.html` here) |
+| `--no-open` | write the page without opening it |
+| `--today` | pretend it's that day (checking a past week) |
+| `--tracker`, `--config` | as in `apply.py` |
+
+Settings (weekly target, follow-up days, sources, title words, remark tags) are in
+`report.yaml`.
+
 ## Job facts card
 
 Printed right after you give the link, before any question or browser. It shows the
@@ -217,6 +240,8 @@ page changed), it says so and you fill the form by hand. The tracker step still 
 |---|---|
 | `apply.py` | entry point |
 | `find.py` | search the tracker and update Outcome / Stage / Remarks |
+| `report.py`, `reporting/` | the read-only report page |
+| `report.yaml` | report settings |
 | `job_facts.py` | the job facts card |
 | `matching.yaml` | keyword lists for the card |
 | `tracker.py` | Excel tracker: duplicate check, row writing, backups, pending rows |
@@ -234,7 +259,7 @@ These stay on your machine and are listed in `.gitignore`:
 |---|---|
 | `google-key.json` | the service account key: anyone with it can edit your Sheet |
 | `config.yaml` | your Sheet ID and tracker path |
-| `*.xlsx`, `backups/`, `pending_*.json` | your tracker data |
+| `*.xlsx`, `backups/`, `pending_*.json`, `report.html` | your tracker data |
 | `profile.yaml`, `answers.yaml` | your personal details and saved form answers (for the form filler) |
 | `*.pdf` | your resume |
 
@@ -261,4 +286,4 @@ real-Excel test is skipped if Excel or pywin32 isn't installed.
 | 5. Other sites | planned |
 | 7. Search and update status (`find.py`) | done |
 | 8. Tracker layout and status model | done |
-| 9. Report page | planned |
+| 9. Report page (`report.py`) | built; real run to check |
