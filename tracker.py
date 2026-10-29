@@ -24,9 +24,10 @@ SHEET = "Sheet1"
 TABLE = "Table1"
 DATE_FORMAT = "M/d/yyyy"
 OUTCOME = "Applied"
-OUTCOMES = ("Applied", "Rejected", "Awaiting reply")  # the Outcome dropdown
+OUTCOMES = ("Applied", "Rejected", "Awaiting reply", "In progress")  # the Outcome dropdown
 STAGES = ("Online Assessment", "Initial Screening", "Interview")  # the Stage dropdown; blank = no news
-AWAITING = "Awaiting reply"  # Outcome whenever a Stage is set
+AWAITING = "Awaiting reply"  # the Outcome old pending files imply for a Stage
+DATED_OUTCOMES = (AWAITING, "Rejected")  # changing Outcome to one of these moves Last Updated
 FIELDS = ("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage", "Last Updated",
           "Remarks")  # required headers
 OPTIONAL = ("Experience", "Key Skills")  # left empty
@@ -238,7 +239,7 @@ class OutcomeUpdate:
     urls: list[str]  # link text and hyperlink target as found
     applied: str  # the Date as an ISO date, or "" when it couldn't be read
     row: int  # where the search found it; tried first
-    outcome: str
+    outcome: str  # "" = leave Outcome as it is
     note: str
     noted_on: date
     stage: str = ""  # "" = leave Stage as it is
@@ -254,6 +255,15 @@ class OutcomeUpdate:
         if "stage" not in d and d["outcome"] in STAGES:  # saved before Stage had its own column
             d["stage"], d["outcome"] = d["outcome"], AWAITING
         return cls(**d)
+
+    def moves_last_updated(self, outcome, stage) -> bool:
+        """Last Updated changes only when Stage changes to a different value, or Outcome changes to
+        Awaiting reply or Rejected. `outcome` and `stage` are the row's values before this update."""
+        def text(value):
+            return "" if value is None else str(value).strip()
+        stage_changed = bool(self.stage) and self.stage != text(stage)
+        outcome_dated = self.outcome in DATED_OUTCOMES and self.outcome != text(outcome)
+        return stage_changed or outcome_dated
 
     @classmethod
     def for_row(cls, r: int, values: dict, urls: list[str], outcome: str, note: str,
@@ -315,7 +325,8 @@ def _ensure_dropdowns(ws, cols: dict[str, int]) -> None:
 
 
 def update_outcome(path, updates: list[OutcomeUpdate], backup_dir=None) -> tuple[list, list]:
-    """Back up, then set Outcome (and Stage when given) and append each note to Remarks.
+    """Back up, then set Outcome and Stage when given, append each note to Remarks, and date Last
+    Updated when the status really changed (OutcomeUpdate.moves_last_updated).
     -> ([(row, update) written], [not found])
 
     A job that isn't in the tracker exactly once is not written. Nothing found = no backup, no save."""
@@ -333,9 +344,15 @@ def update_outcome(path, updates: list[OutcomeUpdate], backup_dir=None) -> tuple
         if r is None:
             missing.append(u)
             continue
-        ws.cell(r, cols["Outcome"]).value = u.outcome
+        outcome, stage = ws.cell(r, cols["Outcome"]), ws.cell(r, cols["Stage"])
+        if u.moves_last_updated(outcome.value, stage.value):
+            last = ws.cell(r, cols["Last Updated"])
+            last.value = u.noted_on
+            last.number_format = DATE_FORMAT
+        if u.outcome:
+            outcome.value = u.outcome
         if u.stage:
-            ws.cell(r, cols["Stage"]).value = u.stage
+            stage.value = u.stage
         if u.note.strip():
             remarks = ws.cell(r, cols["Remarks"])
             remarks.value = format_note(u.noted_on, u.note, remarks.value)

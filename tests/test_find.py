@@ -127,18 +127,18 @@ def test_parse_selection():
 
 
 def test_status_menu_lists_outcomes_then_stages():
-    assert find.STATUS_PROMPT == ("New status: 1 Applied  2 Rejected  3 Awaiting reply  4 Online Assessment  "
-                                  "5 Initial Screening  6 Interview ")
+    assert find.STATUS_PROMPT == ("New status: 1 Applied  2 Rejected  3 Awaiting reply  4 In progress  "
+                                  "5 Online Assessment  6 Initial Screening  7 Interview ")
 
 
 def test_parse_status_outcome_keeps_stage_and_stage_sets_awaiting_reply():
     assert find.parse_status("2") == ("Rejected", "")
     assert find.parse_status("awaiting  REPLY") == ("Awaiting reply", "")
-    assert find.parse_status("4") == ("Awaiting reply", "Online Assessment")
-    assert find.parse_status("5") == ("Awaiting reply", "Initial Screening")
+    assert find.parse_status("5") == ("Awaiting reply", "Online Assessment")
+    assert find.parse_status("6") == ("Awaiting reply", "Initial Screening")
     assert find.parse_status(" online assessment ") == ("Awaiting reply", "Online Assessment")
     assert find.parse_status("INTERVIEW") == ("Awaiting reply", "Interview")
-    for bad in ("", "0", "7", "offer", "rej"):
+    for bad in ("", "0", "8", "offer", "rej"):
         assert find.parse_status(bad) is None, bad
 
 
@@ -408,7 +408,7 @@ def test_sheet_dropdown_gets_missing_outcome(tmp_path):
     ws = sheet(validation=LIST_RULE, stage_validation=STAGE_RULE)
     sheet_tracker.update_outcome(ws, [sheet_update(ws, 2)], tmp_path)
     assert [p["ranges"] for p in ws.spreadsheet.metadata_params] == ["'Sheet1'!F2", "'Sheet1'!G2"]
-    (req,) = [q["setDataValidation"] for q in ws.spreadsheet.requests]  # the Stage list was complete
+    (req,) = [q["setDataValidation"] for q in ws.spreadsheet.requests if "setDataValidation" in q]  # Stage complete
     assert req["range"] == {"sheetId": 7, "startRowIndex": 1, "endRowIndex": 1000,
                             "startColumnIndex": 5, "endColumnIndex": 6}
     assert [v["userEnteredValue"] for v in req["rule"]["condition"]["values"]] == list(tracker.OUTCOMES)
@@ -422,7 +422,7 @@ def test_sheet_dropdown_left_alone_when_complete_missing_or_not_a_list(tmp_path,
     for rule in (complete, None, by_range):
         ws = sheet(validation=rule, stage_validation=STAGE_RULE)
         sheet_tracker.update_outcome(ws, [sheet_update(ws, 2)], tmp_path)
-        assert ws.spreadsheet.requests == []
+        assert [q for q in ws.spreadsheet.requests if "setDataValidation" in q] == []
     assert f"Outcome dropdown is a ONE_OF_RANGE rule; check it offers {', '.join(tracker.OUTCOMES)}" \
         in capsys.readouterr().out
 
@@ -431,7 +431,7 @@ def test_sheet_stage_dropdown_gets_missing_stage(tmp_path):
     two = {**STAGE_RULE, "condition": {"type": "ONE_OF_LIST", "values": STAGE_RULE["condition"]["values"][:2]}}
     ws = sheet(stage_validation=two)
     sheet_tracker.update_outcome(ws, [sheet_update(ws, 2)], tmp_path)
-    (req,) = [q["setDataValidation"] for q in ws.spreadsheet.requests]
+    (req,) = [q["setDataValidation"] for q in ws.spreadsheet.requests if "setDataValidation" in q]
     assert (req["range"]["startColumnIndex"], req["range"]["endColumnIndex"]) == (6, 7)
     assert [v["userEnteredValue"] for v in req["rule"]["condition"]["values"]] == \
         ["Online Assessment", "Interview", "Initial Screening"]
@@ -500,7 +500,7 @@ def test_update_goes_to_sheet_then_excel_and_table_shown_again(dup_tracker, caps
 
 def test_invalid_answers_are_asked_again(dup_tracker):
     ws = known_sheet()
-    script = Script("x", "5", "1", "offer", "7", "4", "", "y", "")
+    script = Script("x", "5", "1", "offer", "8", "5", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
     assert script.prompts[:6] == [find.ROWS_PROMPT] * 3 + [find.STATUS_PROMPT] * 3
     assert script.prompts[7] == "Update 1 row to Online Assessment? [y/N] "
@@ -509,7 +509,7 @@ def test_invalid_answers_are_asked_again(dup_tracker):
 
 def test_interview_then_rejected_keeps_the_stage(dup_tracker):
     ws = known_sheet()
-    assert run_find(dup_tracker, ws, Script("1", "6", "", "y", "1", "rejected", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "7", "", "y", "1", "rejected", "", "y", "")) == 0
     assert at(ws, 2, "Outcome", "Stage") == ["Rejected", "Interview"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Rejected", "Interview"]
 
@@ -552,7 +552,7 @@ def test_sheet_down_at_write_keeps_update_pending_then_flushes(dup_tracker, caps
     assert "pending_sheet_updates.json" in capsys.readouterr().out
 
     ws.batch_update = real_update  # back online: the waiting update goes first, then the new one
-    assert run_find(dup_tracker, ws, Script("1", "4", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "5", "", "y", "")) == 0
     assert [(c, v) for c, v in ws.updates if c in ("F2", "G2")] == \
         [("F2", "Rejected"), ("F2", "Awaiting reply"), ("G2", "Online Assessment")]
     assert not pending.exists()
@@ -566,7 +566,7 @@ def test_sheet_unreachable_at_start_searches_excel(dup_tracker, tmp_path, monkey
         raise SheetUnavailable("offline")
 
     monkeypatch.setattr(sheet_tracker, "open_sheet", unreachable)
-    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "6", "", "y", ""),
+    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "7", "", "y", ""),
                      today=NOTE_DAY) == 0
     out = capsys.readouterr().out
     assert "Google Sheet unavailable: offline" in out and "Searching tracker.xlsx instead" in out
@@ -643,3 +643,106 @@ def test_excel_missing_header_stops_find(dup_tracker, capsys):
     assert run_find(dup_tracker, known_sheet(), script) == 2
     assert script.prompts == [] and dup_tracker.read_bytes() == before
     assert "tracker.xlsx: row 1 is missing the header Stage" in capsys.readouterr().out
+
+
+# ---------- milestone 8: status model and Last Updated on update ----------
+
+# (Outcome, Stage before) -> update (outcome, stage, note) -> Last Updated moves?
+LAST_UPDATED_CASES = [
+    pytest.param(("Applied", ""), ("", "Online Assessment", ""), True, id="stage set"),
+    pytest.param(("In progress", "Online Assessment"), ("", "Interview", ""), True, id="stage changed"),
+    pytest.param(("Applied", ""), ("Rejected", "", ""), True, id="to rejected"),
+    pytest.param(("In progress", "Interview"), ("Awaiting reply", "", ""), True, id="to awaiting reply"),
+    pytest.param(("Applied", ""), ("", "", "Recruiter call"), False, id="note alone"),
+    pytest.param(("Awaiting reply", "Interview"), ("In progress", "", ""), False, id="to in progress"),
+    pytest.param(("Rejected", "Interview"), ("Applied", "", ""), False, id="to applied"),
+    pytest.param(("Awaiting reply", "Interview"), ("Awaiting reply", "Interview", "x"), False, id="same values"),
+    pytest.param(("Rejected", ""), ("Rejected", "", ""), False, id="same outcome"),
+]
+
+
+def set_cells(path, **refs):
+    wb = load_workbook(path)
+    for ref, value in refs.items():
+        wb["Sheet1"][ref] = value or None
+    wb.save(path)
+
+
+@pytest.mark.parametrize("before, change, moves", LAST_UPDATED_CASES)
+def test_excel_last_updated_only_on_a_real_status_change(dup_tracker, before, change, moves):
+    set_cells(dup_tracker, **{f"F{KNOWN_ROW}": before[0], f"G{KNOWN_ROW}": before[1]})
+    outcome, stage, note = change
+    tracker.update_outcome(dup_tracker, [update(outcome=outcome, stage=stage, note=note)], dup_tracker.parent / "b")
+    ws = load_workbook(dup_tracker)["Sheet1"]
+    assert ws[f"F{KNOWN_ROW}"].value == (outcome or before[0])  # "" keeps the Outcome
+    assert (ws[f"G{KNOWN_ROW}"].value or "") == (stage or before[1])
+    assert (ws[f"I{KNOWN_ROW}"].value or "") == (f"10/21/2026 {note}" if note else "")
+    last = ws[f"H{KNOWN_ROW}"]
+    assert (last.value.date() if last.value else None) == (NOTE_DAY if moves else None)
+    if moves:
+        assert last.number_format == "M/d/yyyy"
+
+
+@pytest.mark.parametrize("before, change, moves", LAST_UPDATED_CASES)
+def test_sheet_last_updated_only_on_a_real_status_change(tmp_path, before, change, moves):
+    ws = sheet()
+    ws.values[1][5], ws.values[1][6] = before
+    outcome, stage, note = change
+    sheet_tracker.update_outcome(ws, [sheet_update(ws, 2, outcome=outcome, stage=stage, note=note)], tmp_path)
+    assert at(ws, 2, "Outcome", "Stage") == [outcome or before[0], stage or before[1]]
+    assert at(ws, 2, "Last Updated") == (["2026-10-21"] if moves else [""])
+    formats = [q["repeatCell"]["range"] for q in ws.spreadsheet.requests if "repeatCell" in q]
+    assert formats == ([{"sheetId": 7, "startRowIndex": 1, "endRowIndex": 2, "startColumnIndex": 7,
+                         "endColumnIndex": 8}] if moves else [])
+    if moves:
+        assert ws.input_options["H2"] == "USER_ENTERED"
+    assert all(o == "RAW" for c, o in ws.input_options.items() if c != "H2")
+
+
+def test_second_update_to_a_row_sees_the_first(dup_tracker):
+    first = update(outcome="In progress", stage="Online Assessment")
+    again = update(outcome="", stage="Online Assessment", note="done")  # same Stage: no change of its own
+    tracker.update_outcome(dup_tracker, [first, again], dup_tracker.parent / "b")
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}", f"I{KNOWN_ROW}") == \
+        ["In progress", "Online Assessment", "10/21/2026 done"]
+
+
+def test_in_progress_is_an_outcome_and_added_to_the_dropdown(dup_tracker):
+    assert tracker.OUTCOMES == ("Applied", "Rejected", "Awaiting reply", "In progress")
+    wb = load_workbook(dup_tracker)
+    for dv in wb["Sheet1"].data_validations.dataValidation:
+        if str(dv.sqref).startswith("F"):
+            dv.formula1 = '"Applied,Rejected,Awaiting reply"'
+    wb.save(dup_tracker)
+    tracker.update_outcome(dup_tracker, [update(outcome="In progress", stage="Interview")], dup_tracker.parent / "b")
+    assert dropdowns(dup_tracker)["F2:F1000"] == '"Applied,Rejected,Awaiting reply,In progress"'
+
+
+def test_shuffled_columns_update(tmp_path):
+    from fake_tracker import SHUFFLED, letter_of, make_tracker
+
+    path = make_tracker(tmp_path / "shuffled.xlsx", SHUFFLED)
+    url = "https://example.com/jobs/50"
+    u = update(row_hint=50, urls=(url,), company="Company 50", position="Role 50", outcome="In progress",
+               stage="Online Assessment", note="OA link")
+    written, _ = tracker.update_outcome(path, [u], tmp_path / "b")
+    assert [r for r, _ in written] == [50]
+    ws = load_workbook(path)["Sheet1"]
+
+    def at50(header):
+        return ws[f"{letter_of(header, SHUFFLED)}50"].value
+
+    assert (at50("Outcome"), at50("Stage"), at50("Remarks")) == ("In progress", "Online Assessment",
+                                                                 "10/21/2026 OA link")
+    assert at50("Last Updated").date() == NOTE_DAY
+
+
+def test_old_pending_updates_still_apply(dup_tracker):
+    pending = tracker.pending_updates_path_for(dup_tracker)
+    old_stage_in_outcome = {k: v for k, v in update(outcome="Interview").to_json().items() if k != "stage"}
+    old_awaiting = update(outcome="Awaiting reply", stage="Online Assessment").to_json()
+    pending.write_text(json.dumps([old_awaiting, old_stage_in_outcome]), encoding="utf-8")
+    written, missing = tracker.flush_pending_updates(dup_tracker, backup_dir=dup_tracker.parent / "b")
+    assert len(written) == 2 and missing == []
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Awaiting reply", "Interview"]
+    assert not pending.exists()

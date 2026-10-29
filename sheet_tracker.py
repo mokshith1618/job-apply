@@ -241,8 +241,8 @@ def ensure_dropdowns(ws, cols: dict[str, int]) -> None:
 
 @_guard
 def update_outcome(ws, updates: list[tracker.OutcomeUpdate], backup_dir) -> tuple[list, list]:
-    """Same as tracker.update_outcome, on the Sheet: check the header, back up, then write Outcome
-    (and Stage / Remarks when given) row by row. -> ([(row, update) written], [not found])"""
+    """Same as tracker.update_outcome, on the Sheet: check the header, back up, then write Outcome,
+    Stage, Remarks and Last Updated as needed, row by row. -> ([(row, update) written], [not found])"""
     values = ws.get_all_values()
     cols = columns(values)
     rows = _job_rows(values, _url_formulas(ws, cols), cols)
@@ -253,12 +253,22 @@ def update_outcome(ws, updates: list[tracker.OutcomeUpdate], backup_dir) -> tupl
         return written, missing
     backup_values(values, backup_dir)
     current = {r: v for r, v, _ in rows}  # kept up to date, so a second update to a row builds on the first
+    date_formats = []
     for r, u in written:
-        cells = {"Outcome": u.outcome}
+        row = current[r]
+        cells = {}
+        if u.moves_last_updated(row["Outcome"], row["Stage"]):
+            cells["Last Updated"] = row["Last Updated"] = u.noted_on.isoformat()
+            date_formats.append(_date_format(ws.id, r, cols["Last Updated"]))
+        if u.outcome:
+            cells["Outcome"] = row["Outcome"] = u.outcome
         if u.stage:
-            cells["Stage"] = u.stage
+            cells["Stage"] = row["Stage"] = u.stage
         if u.note.strip():
-            cells["Remarks"] = current[r]["Remarks"] = tracker.format_note(u.noted_on, u.note, current[r]["Remarks"])
-        _write_cells(ws, r, cells, cols)
+            cells["Remarks"] = row["Remarks"] = tracker.format_note(u.noted_on, u.note, row["Remarks"])
+        if cells:
+            _write_cells(ws, r, cells, cols)
+    if date_formats:
+        ws.spreadsheet.batch_update({"requests": date_formats})
     ensure_dropdowns(ws, cols)
     return written, missing
