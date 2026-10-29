@@ -19,7 +19,7 @@ import tracker
 @dataclass
 class Settings:
     """report.yaml; every key left out keeps the default below (the same values as the file in git)."""
-    weekly_target: int = 25
+    weekly_target: int = 70
     follow_up_days: int = 14
     no_reply_days: int = 30
     many_applications: int = 5

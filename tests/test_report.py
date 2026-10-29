@@ -100,7 +100,7 @@ def test_settings_defaults_when_no_file(tmp_path):
     s = load.load_settings(tmp_path / "missing.yaml")
     assert s == Settings()
     assert (s.weekly_target, s.follow_up_days, s.no_reply_days, s.many_applications, s.min_group,
-            s.weeks_shown) == (25, 14, 30, 5, 20, 12)
+            s.weeks_shown) == (70, 14, 30, 5, 20, 12)
     assert s.sources == ["Jobright", "Tsenta", "LinkedIn"]
     assert list(s.title_types) == ["Backend", "DevOps/Cloud/SRE/Platform", "AI/ML/Data", "Software (general)"]
     assert list(s.remark_tags) == ["No sponsorship", "Clearance/citizenship", "Referral"]
@@ -278,16 +278,16 @@ def test_this_week():
 
 def test_summary_sentences():
     assert metrics.summary(WEEK_ROWS, S, TODAY) == [
-        "This week: 3 applications (target 25, last week 2). 1 new response: Delta (Interview).",
+        "This week: 3 applications (target 70, last week 2). 1 new response: Delta (Interview).",
         "1 in progress and 2 awaiting reply.",
     ]
 
 
 def test_summary_leaves_out_empty_sentences():
-    assert metrics.summary([], S, TODAY) == ["This week: 0 applications (target 25, last week 0). No new responses."]
+    assert metrics.summary([], S, TODAY) == ["This week: 0 applications (target 70, last week 0). No new responses."]
     one = [F(applied=d(10, 27))]
     assert metrics.summary(one, S, TODAY)[0] == (
-        "This week: 1 application (target 25, last week 0). No new responses.")
+        "This week: 1 application (target 70, last week 0). No new responses.")
 
 
 def _source_rows(source, n, responded, applied=d(1, 5)):
@@ -298,7 +298,7 @@ def _source_rows(source, n, responded, applied=d(1, 5)):
 def test_summary_best_source():
     rows = _source_rows("Tsenta", 20, 2) + _source_rows("Jobright", 25, 2) + _source_rows("LinkedIn", 5, 3)
     assert metrics.summary(rows, S, TODAY) == [
-        "This week: 0 applications (target 25, last week 0). No new responses.",
+        "This week: 0 applications (target 70, last week 0). No new responses.",
         "Best source so far: Tsenta, 2 responses from 20 applications.",  # 10% beats 8%; LinkedIn too few
     ]
 
@@ -537,14 +537,14 @@ def test_job_link_shows_the_domain():
 
 def test_this_week_progress_and_badge():
     html = page(WEEK_ROWS)
-    assert "This week: 3 applications (target 25, last week 2). 1 new response: Delta (Interview)." in html
+    assert "This week: 3 applications (target 70, last week 2). 1 new response: Delta (Interview)." in html
     week = section(html, "this-week")
-    assert '<span class="big">3</span><span class="of">of 25</span>' in week
+    assert '<span class="big">3</span><span class="of">of 70</span>' in week
     assert '<span class="badge up">↑ 1 from last week</span>' in week
-    assert 'style="width: 12%"' in week
+    assert 'style="width: 4%"' in week
     assert "1 new response · 1 in progress" in week
-    over = section(page([F(applied=d(10, 27))] * 30), "this-week")
-    assert 'style="width: 100%"' in over and '<span class="big">30</span>' in over
+    over = section(page([F(applied=d(10, 27))] * 75), "this-week")
+    assert 'style="width: 100%"' in over and '<span class="big">75</span>' in over
     assert '<span class="badge down">↓ 2 from last week</span>' in page([F(applied=d(10, 20))] * 2)
     assert '<span class="badge same">same as last week</span>' in page([])
 
@@ -591,12 +591,12 @@ def charts(html):
 
 
 def test_weekly_chart():
-    weekly = section(page(WEEK_ROWS + [F(applied=d(10, 20))] * 25), "weekly")
+    weekly = section(page(WEEK_ROWS + [F(applied=d(10, 20))] * 70), "weekly")
     svg = charts(weekly)
     assert list(svg) == ["wide", "narrow"]
     for chart in svg.values():
         assert chart.count('<rect class="bar') == 12
-        assert chart.count('<rect class="bar hit"') == 1  # last week: 27 of 25
+        assert chart.count('<rect class="bar hit"') == 1  # last week: 72 of 70
         assert "<title>Week of Oct 26: 3 applications, 0 responses</title>" in chart
         assert 'class="target"' in chart and ">Oct 26<" in chart
     assert ">Oct 19<" in svg["wide"] and ">Oct 19<" not in svg["narrow"]  # every other week labelled on phones
@@ -726,7 +726,7 @@ def test_report_end_to_end(tracker_file, report_env):
     assert opened == []
     html = out.read_text(encoding="utf-8")
     for text in [
-        "This week: 2 applications (target 25, last week 1). 1 new response: Beta (Online Assessment).",
+        "This week: 2 applications (target 70, last week 1). 1 new response: Beta (Online Assessment).",
         "2 in progress and 2 awaiting reply.",
         "Beta: Online Assessment to do since 1 day",
         "Gamma: Interview to do",

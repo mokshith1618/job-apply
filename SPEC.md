@@ -572,7 +572,7 @@ python report.py [--sheet] [--out PATH] [--no-open] [--today YYYY-MM-DD] [--trac
 ### Settings: `report.yaml` (in git, no personal data)
 
 ```yaml
-weekly_target: 25          # applications per week
+weekly_target: 70          # applications per week
 follow_up_days: 14         # Awaiting reply older than this (by Last Updated) = follow up
 no_reply_days: 30          # Applied, no Stage, older than this = no reply
 many_applications: 5       # this many applications to one company = flagged
@@ -629,7 +629,7 @@ Templates, filled from the data; a sentence is left out if it has nothing to say
   source has n ≥ min_group and at least 2 responses; otherwise left out.
 
 **2. This week** (card)
-A large progress bar `19 of 25`: applications this week (Monday to today) toward
+A large progress bar `19 of 70`: applications this week (Monday to today) toward
 `weekly_target` (full bar at or over the target; the text shows the real number), the change
 from last full week as a small badge (`↑ 13 from last week`, up / down / same). Below it, small:
 responses this week, rows in progress.
