@@ -365,7 +365,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 6. **Email:** parked.
 7. **Search and update status** (`find.py`). See "Milestone 7" below.
 8. **Tracker layout and status model:** columns by header name, Last Updated, In progress,
-   two questions in find.py. See "Milestone 8" below.
+   two questions in find.py. See "Milestone 8" below. (Done 2026-10-28; real run checked by me.)
 9. **Report page** (`report.py`): a read-only page of the tracker. Drafted in `SPEC-report.md`;
    merged here when it is built.
 

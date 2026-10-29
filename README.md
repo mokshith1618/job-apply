@@ -260,5 +260,5 @@ real-Excel test is skipped if Excel or pywin32 isn't installed.
 | 4. Workday | planned |
 | 5. Other sites | planned |
 | 7. Search and update status (`find.py`) | done |
-| 8. Tracker layout and status model | built; waiting for a real run |
+| 8. Tracker layout and status model | done |
 | 9. Report page | planned |
