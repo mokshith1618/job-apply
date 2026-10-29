@@ -606,10 +606,10 @@ word, e.g. "Software Engineer I").
 | Title level | Early career / Other |
 | Title type | see settings |
 | Responded | Stage is not blank |
-| Status group | In progress / Awaiting reply / Rejected after response / Rejected / No news (Applied, no Stage) |
+| Status group | In progress / Awaiting reply / Rejected after response / Rejected / No news (Applied, no Stage). Applied with a Stage (old model) counts as Awaiting reply |
 | Age | days since Date |
 | Since update | days since Last Updated (blank if unknown) |
-| Remark tags | `remark_tags` words found in Remarks |
+| Remark tags | `remark_tags` words found in Remarks, at the start of a word (`sponsor` finds `sponsorship`, `citizen` finds `Citizens`) |
 | Company key | the same normalization as `find.py` search (Acme Inc = Acme) |
 
 URL from the hyperlink target, or from an `=HYPERLINK("url", ...)` formula, or the cell text.
