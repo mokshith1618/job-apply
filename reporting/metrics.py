@@ -2,7 +2,7 @@
 settings and today. Rows with no readable Date are left out of anything counted by date."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from reporting import derive
@@ -10,6 +10,7 @@ from reporting.derive import AWAITING, IN_PROGRESS, NO_NEWS, REJECTED, Facts
 from reporting.load import Settings
 
 ATTENTION_SHOWN = 5  # lines in "Needs your attention" before "+N more"
+MANY_SHOWN = 3  # "many applications" lines shown on the page before "+N more"
 TOP_COMPANIES = 10
 
 
@@ -116,28 +117,64 @@ def _newest(group: list[Facts]) -> Facts:
     return max(group, key=lambda f: (f.job.applied or date.min, f.job.row))
 
 
+TURN, FOLLOW_UP, MANY = "turn", "follow", "many"  # attention line kinds
+
+
 def attention(rows: list[Facts], settings: Settings, today: date) -> list[str]:
     """Your turn (In progress, oldest first), follow up (Awaiting reply too long, or since when unknown),
     then companies with many applications and no response. All of them; `cap` splits off the rest."""
-    lines = []
+    return [text for _, text in attention_items(rows, settings, today)]
+
+
+def attention_items(rows: list[Facts], settings: Settings, today: date) -> list[tuple[str, str]]:
+    """`attention` with each line's kind: [(TURN | FOLLOW_UP | MANY, text)], same order."""
+    items = []
     yours = sorted((f for f in rows if f.group == IN_PROGRESS),
                    key=lambda f: (f.job.last_updated is None, f.job.last_updated or date.min, f.job.row))
     for f in yours:
         since = f" since {plural(f.since_update, 'day')}" if f.since_update is not None else ""
-        lines.append(f"{f.job.company}: {f.job.stage or 'next step'} to do{since}")
+        items.append((TURN, f"{f.job.company}: {f.job.stage or 'next step'} to do{since}"))
     waiting = [f for f in rows if f.group == AWAITING]
     late = sorted((f for f in waiting if f.since_update is not None and f.since_update > settings.follow_up_days),
                   key=lambda f: (-f.since_update, f.job.row))
-    lines += [f"{f.job.company}: {f.job.stage}, no reply for {plural(f.since_update, 'day')}" for f in late]
-    lines += [f"{f.job.company}: {f.job.stage}, waiting (date unknown)" for f in waiting if f.since_update is None]
+    items += [(FOLLOW_UP, f"{f.job.company}: {f.job.stage}, no reply for {plural(f.since_update, 'day')}")
+              for f in late]
+    items += [(FOLLOW_UP, f"{f.job.company}: {f.job.stage}, waiting (date unknown)")
+              for f in waiting if f.since_update is None]
     many = [(len(g), _newest(g).job.company) for g in _companies(rows).values()
             if len(g) >= settings.many_applications and not any(f.responded for f in g)]
-    lines += [f"{name}: {n} applications, no response" for n, name in sorted(many, key=lambda m: (-m[0], m[1]))]
-    return lines
+    items += [(MANY, f"{name}: {n} applications, no response") for n, name in sorted(many, key=lambda m: (-m[0], m[1]))]
+    return items
 
 
 def cap(lines: list[str], shown: int = ATTENTION_SHOWN) -> tuple[list[str], list[str]]:
     return lines[:shown], lines[shown:]
+
+
+# ---------- totals and pipeline ----------
+
+@dataclass
+class Totals:
+    applied: int  # every row
+    responses: int  # Stage set
+    awaiting: int  # status group Awaiting reply
+    rejected: int  # Outcome Rejected
+
+
+def totals(rows: list[Facts]) -> Totals:
+    return Totals(len(rows), sum(f.responded for f in rows), sum(f.group == AWAITING for f in rows),
+                  sum(f.job.outcome == REJECTED for f in rows))
+
+
+SCREENING, INTERVIEW = "Initial Screening", "Interview"
+
+
+def pipeline(rows: list[Facts]) -> list[tuple[str, int]]:
+    """Applied -> Responses -> Initial Screening -> Interview, each "reached at least" (the tracker keeps only
+    the current Stage, and Interview comes after Initial Screening)."""
+    return [("Applied", len(rows)), ("Responses", sum(f.responded for f in rows)),
+            (SCREENING, sum(f.job.stage in (SCREENING, INTERVIEW) for f in rows)),
+            (INTERVIEW, sum(f.job.stage == INTERVIEW for f in rows))]
 
 
 # ---------- 4-5. weekly and monthly ----------
@@ -204,6 +241,7 @@ class CompanyRow:
     rejected: int
     last_applied: date | None
     mark: str  # "green" = any response, "muted" = many applications and none, else ""
+    rejected_silent: int = field(default=0, compare=False)  # Rejected with no response (bar segments)
 
 
 def top_companies(rows: list[Facts], settings: Settings) -> list[CompanyRow]:
@@ -214,7 +252,8 @@ def top_companies(rows: list[Facts], settings: Settings) -> list[CompanyRow]:
         newest = _newest(g)
         mark = "green" if r else "muted" if len(g) >= settings.many_applications else ""
         table.append(CompanyRow(newest.job.company, len(g), r, sum(f.group in (IN_PROGRESS, AWAITING) for f in g),
-                                sum(f.job.outcome == REJECTED for f in g), newest.job.applied, mark))
+                                sum(f.job.outcome == REJECTED for f in g), newest.job.applied, mark,
+                                sum(f.group == REJECTED for f in g)))
     table.sort(key=lambda c: (-c.applications, -(c.last_applied or date.min).toordinal(), c.name))
     return table[:TOP_COMPANIES]
 

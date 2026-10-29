@@ -16,12 +16,12 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from markupsafe import Markup
 
 from reporting import metrics
-from reporting.derive import AWAITING, IN_PROGRESS, NO_NEWS, REJECTED, REJECTED_AFTER, Facts
+from reporting.derive import AWAITING, IN_PROGRESS, REJECTED, REJECTED_AFTER, Facts
 from reporting.load import Settings
 
 HERE = Path(__file__).resolve().parent
-GROUP_CLASS = {IN_PROGRESS: "progress", AWAITING: "response", REJECTED_AFTER: "rejected", REJECTED: "rejected",
-               NO_NEWS: "none"}
+MONTHS_SHOWN = 12  # months in the monthly chart; the "Show numbers" table has them all
+KIND_LABEL = {metrics.TURN: "Your turn", metrics.FOLLOW_UP: "Follow up", metrics.MANY: "Many applications"}
 
 
 @dataclass
@@ -31,24 +31,16 @@ class Link:
 
 
 @dataclass
-class Status:
-    text: str
-    cls: str
-
-
-@dataclass
 class Table:
     headers: list[str]
-    rows: list[list]  # cells: text, Link, Status or None
+    rows: list[list]  # cells: text, Link or None
     numeric: tuple = ()
-    row_classes: list[str] | None = None
 
 
 def _env() -> Environment:
     env = Environment(loader=FileSystemLoader(HERE / "templates"), autoescape=True, undefined=StrictUndefined,
-                      trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=False)
+                      trim_blocks=True, lstrip_blocks=True)
     env.tests["link"] = lambda v: isinstance(v, Link)
-    env.tests["status"] = lambda v: isinstance(v, Status)
     env.globals["zip"] = zip
     return env
 
@@ -72,12 +64,44 @@ def link(url: str) -> Link | None:
     return Link(url.strip(), parts.hostname.removeprefix("www."))
 
 
-def status(f: Facts, text: str) -> Status:
-    return Status(text, GROUP_CLASS.get(f.group, ""))
+def n(value: float) -> str:
+    """An SVG coordinate."""
+    return f"{value:.1f}"
 
 
-def chart(weeks: list[metrics.Week], target: int) -> dict:
-    """Bars = applications per week, a dot = how many of them got a response, dashed line = target."""
+# ---------- 2-4. this week, totals, attention ----------
+
+def this_week(week: metrics.ThisWeek, target: int) -> dict:
+    direction = "up" if week.applications > week.last_week else "down" if week.applications < week.last_week \
+        else "same"
+    return {"applications": week.applications, "target": target,
+            "percent": min(100, round(100 * week.applications / target)) if target > 0 else 100,
+            "change": metrics.change_text(week.applications, week.last_week), "direction": direction,
+            "responses": metrics.plural(len(week.new_responses), "new response"),
+            "in_progress": week.in_progress}
+
+
+def tiles(t: metrics.Totals) -> list[dict]:
+    return [{"label": "Applied", "value": t.applied, "cls": ""},
+            {"label": "Responses", "value": t.responses, "cls": "response"},
+            {"label": "Awaiting reply", "value": t.awaiting, "cls": "waiting"},
+            {"label": "Rejected", "value": t.rejected, "cls": "rejected"}]
+
+
+def attention(items: list[tuple[str, str]]) -> tuple[list[dict], list[dict]]:
+    """(shown, under "+N more"): every Your turn and Follow up line, at most MANY_SHOWN Many applications."""
+    def chip(kind, text):
+        return {"kind": kind, "label": KIND_LABEL[kind], "text": text}
+    many_shown, many_more = metrics.cap([text for kind, text in items if kind == metrics.MANY], metrics.MANY_SHOWN)
+    shown = [chip(kind, text) for kind, text in items if kind != metrics.MANY]
+    return shown + [chip(metrics.MANY, t) for t in many_shown], [chip(metrics.MANY, t) for t in many_more]
+
+
+# ---------- 5-6. charts ----------
+
+def weekly_chart(weeks: list[metrics.Week], target: int) -> dict:
+    """Bars = applications per week (brighter at or above the target), a dot = how many of them got a
+    response, dashed line = target."""
     width, height, left, right, top, bottom = 920, 220, 34, 70, 12, 26
     plot_w, plot_h = width - left - right, height - top - bottom
     top_value = max([w.applications for w in weeks] + [target, 1])
@@ -92,13 +116,39 @@ def chart(weeks: list[metrics.Week], target: int) -> dict:
         bars.append({
             "tip": (f"Week of {short_day(w.start)}: {metrics.plural(w.applications, 'application')}, "
                     f"{metrics.plural(w.responses, 'response')}"),
-            "x": f"{x:.1f}", "y": f"{y(w.applications):.1f}", "w": f"{bar_w:.1f}",
-            "h": f"{y(0) - y(w.applications):.1f}", "cx": f"{x + bar_w / 2:.1f}",
-            "dot_y": f"{y(w.responses):.1f}" if w.responses else None, "label": short_day(w.start)})
+            "hit": target > 0 and w.applications >= target,
+            "x": n(x), "y": n(y(w.applications)), "w": n(bar_w), "h": n(y(0) - y(w.applications)),
+            "cx": n(x + bar_w / 2), "dot_y": n(y(w.responses)) if w.responses else None,
+            "label": short_day(w.start), "alt": (len(weeks) - 1 - i) % 2 == 1})
     return {"width": width, "height": height, "bars": bars, "left": left, "right": left + plot_w,
-            "target": target, "target_y": f"{y(target):.1f}", "target_label_y": f"{y(target) + 4:.1f}",
-            "zero_y": f"{y(0):.1f}", "top_value": top_value, "top_y": f"{y(top_value) + 8:.1f}",
-            "label_y": height - 8}
+            "target": target, "target_y": n(y(target)), "target_label_y": n(y(target) + 4),
+            "zero_y": n(y(0)), "top_value": top_value, "top_y": n(y(top_value) + 8), "label_y": height - 8}
+
+
+def monthly_chart(months: list[metrics.Month]) -> dict:
+    """Paired bars per month, oldest left: applications (neutral) and responses (green)."""
+    shown = list(reversed(months[:MONTHS_SHOWN]))
+    width, height, left, right, top, bottom = 920, 180, 34, 12, 12, 26
+    plot_w, plot_h = width - left - right, height - top - bottom
+    top_value = max([m.applications for m in shown] + [1])
+
+    def y(value):
+        return top + plot_h - plot_h * value / top_value
+    slot = plot_w / max(len(shown), 1)
+    bar_w = min(slot * 0.3, 40)
+    groups = []
+    for i, m in enumerate(shown):
+        mid = left + i * slot + slot / 2
+        new_year = i == 0 or m.start.month == 1
+        groups.append({
+            "apps": {"x": n(mid - bar_w - 1), "y": n(y(m.applications)), "h": n(y(0) - y(m.applications)),
+                     "tip": f"{m.start:%B %Y}: {metrics.plural(m.applications, 'application')}"},
+            "resp": {"x": n(mid + 1), "y": n(y(m.responses)), "h": n(y(0) - y(m.responses)),
+                     "tip": f"{m.start:%B %Y}: {metrics.plural(m.responses, 'response')} ({m.rate})"},
+            "cx": n(mid), "label": f"{m.start:%b %Y}" if new_year else f"{m.start:%b}",
+            "alt": (len(shown) - 1 - i) % 2 == 1})
+    return {"width": width, "height": height, "groups": groups, "bar_w": n(bar_w), "left": left,
+            "zero_y": n(y(0)), "top_value": top_value, "top_y": n(y(top_value) + 8), "label_y": height - 8}
 
 
 def weekly_numbers(weeks: list[metrics.Week]) -> Table:
@@ -114,20 +164,47 @@ def monthly_table(months: list[metrics.Month]) -> Table:
                  numeric=("Applications", "Responses", "Rejected"))
 
 
-def responses_table(rows: list[Facts]) -> Table:
-    return Table(["Company", "Position", "Source", "Job system", "Applied", "Stage", "Outcome", "Last Updated",
-                  "Link"],
-                 [[f.job.company, f.job.position, f.source, f.system, day(f.job.applied), f.job.stage,
-                   status(f, f.job.outcome), day(f.job.last_updated), link(f.job.url)] for f in rows])
+# ---------- 8-9. responses and top companies ----------
+
+def outcome_class(f: Facts, settings: Settings) -> str:
+    if f.group == IN_PROGRESS:
+        return "progress"
+    if f.group in (REJECTED, REJECTED_AFTER):
+        return "rejected"
+    if f.group == AWAITING and f.since_update is not None and f.since_update > settings.follow_up_days:
+        return "followup"
+    return "waiting"
 
 
-def top_table(companies: list[metrics.CompanyRow]) -> Table:
-    return Table(["Company", "Applications", "Responses", "In progress/Awaiting", "Rejected", "Last applied"],
-                 [[c.name, str(c.applications), str(c.responses), str(c.open), str(c.rejected), day(c.last_applied)]
-                  for c in companies],
-                 numeric=("Applications", "Responses", "In progress/Awaiting", "Rejected"),
-                 row_classes=[c.mark for c in companies])
+def response_cards(rows: list[Facts], settings: Settings) -> list[dict]:
+    return [{"company": f.job.company, "position": f.job.position, "stage": f.job.stage,
+             "outcome": f.job.outcome or "Applied", "outcome_cls": outcome_class(f, settings),
+             "facts": [("Source", f.source), ("Job system", f.system), ("Applied", day(f.job.applied)),
+                       ("Last Updated", day(f.job.last_updated) or "unknown")],
+             "link": link(f.job.url)} for f in rows]
 
+
+def company_bars(companies: list[metrics.CompanyRow]) -> list[dict]:
+    """Bar length = applications (the longest is the first company); green = rows with a response,
+    red = rejected with no response, the rest neutral. Widths in percent of the longest bar."""
+    longest = max([c.applications for c in companies] + [1])
+    bars = []
+    for c in companies:
+        green, red = c.responses, c.rejected_silent
+        rest = max(c.applications - green - red, 0)
+        unit = 100 / longest
+        bars.append({
+            "name": c.name, "mark": c.mark,
+            "green": n(green * unit), "red": n(red * unit), "rest": n(rest * unit),
+            "red_x": n(green * unit), "rest_x": n((green + red) * unit),
+            "text": f"{c.applications} · {metrics.plural(c.responses, 'response')} · {c.rejected} rejected",
+            "tip": (f"{c.name}: {metrics.plural(c.applications, 'application')}, "
+                    f"{metrics.plural(c.responses, 'response')}, {c.open} in progress or awaiting, "
+                    f"{c.rejected} rejected, last applied {day(c.last_applied) or 'unknown'}")})
+    return bars
+
+
+# ---------- 10-12. collapsed sections ----------
 
 def no_reply_months(months) -> list[dict]:
     return [{"name": f"{start:%B %Y}", "count": len(fs),
@@ -153,28 +230,25 @@ def data_check_tables(issues) -> list[dict]:
 
 def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, source_name: str,
          generated: datetime) -> str:
-    week = metrics.this_week(rows, today)
     weeks = metrics.weekly(rows, settings, today)
-    lines = metrics.attention(rows, settings, today)
-    shown, more = metrics.cap(lines)
+    shown, more = attention(metrics.attention_items(rows, settings, today))
     total, quiet_months = metrics.no_reply(rows, settings, today)
     issues = metrics.data_check(rows, settings, excel)
     responses = metrics.responses(rows)
-    companies = metrics.top_companies(rows, settings)
     months = metrics.monthly(rows, settings)
     stamp = f"{generated:%m/%d/%Y} {generated.hour % 12 or 12}:{generated:%M %p}"
     return ENV.get_template("report.html.j2").render(
         css=Markup((HERE / "static" / "report.css").read_text(encoding="utf-8")),
         title_date=f"{today:%B} {today.day}, {today.year}",
         summary=metrics.summary(rows, settings, today),
-        week_stats=[("Applications", f"{week.applications} · {metrics.change_text(week.applications, week.last_week)}"),
-                    ("Responses this week", str(len(week.new_responses))),
-                    ("In progress", str(week.in_progress)), ("Awaiting reply", str(week.awaiting))],
+        week=this_week(metrics.this_week(rows, today), settings.weekly_target),
+        tiles=tiles(metrics.totals(rows)),
         attention_shown=shown, attention_more=more,
-        chart=chart(weeks, settings.weekly_target), weekly_numbers=weekly_numbers(weeks),
-        monthly=monthly_table(months) if months else None,
-        responses_count=len(responses), responses=responses_table(responses) if responses else None,
-        top=top_table(companies) if companies else None,
+        weekly=weekly_chart(weeks, settings.weekly_target), weekly_numbers=weekly_numbers(weeks),
+        monthly=monthly_chart(months) if months else None, monthly_numbers=monthly_table(months),
+        pipeline=metrics.pipeline(rows),
+        responses=response_cards(responses, settings),
+        top=company_bars(metrics.top_companies(rows, settings)),
         no_reply_days=settings.no_reply_days, no_reply_total=metrics.plural(total, "application"),
         no_reply_months=no_reply_months(quiet_months),
         details=details_tables(metrics.details(rows, settings)),

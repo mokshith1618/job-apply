@@ -1,7 +1,6 @@
 {#- The report page. Autoescape is on: every value from the tracker is escaped. Values come from render.py. -#}
 {% macro cell(c) %}
 {%- if c is link %}<a href="{{ c.href }}" target="_blank" rel="noopener noreferrer">{{ c.domain }}</a>
-{%- elif c is status %}<span class="{{ c.cls }}">{{ c.text }}</span>
 {%- elif c is not none %}{{ c }}{% endif -%}
 {% endmacro %}
 {% macro table(t) %}
@@ -9,12 +8,11 @@
 <thead><tr>{% for h in t.headers %}<th{% if h in t.numeric %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
 <tbody>
 {% for row in t.rows %}
-<tr{% if t.row_classes and t.row_classes[loop.index0] %} class="{{ t.row_classes[loop.index0] }}"{% endif %}>
-{%- for h, c in zip(t.headers, row) %}<td{% if h in t.numeric %} class="num"{% endif %}>{{ cell(c) }}</td>{% endfor -%}
-</tr>
+<tr>{% for h, c in zip(t.headers, row) %}<td{% if h in t.numeric %} class="num"{% endif %}>{{ cell(c) }}</td>{% endfor %}</tr>
 {% endfor %}
 </tbody></table></div>
 {% endmacro %}
+{% macro chip(c) %}<li class="chip {{ c.kind }}"><span class="chip-kind">{{ c.label }}</span> <span class="chip-text">{{ c.text }}</span></li>{% endmacro %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -27,62 +25,137 @@
 </head>
 <body>
 <main>
-<h1>Job search report · {{ title_date }}</h1>
+<header class="page-head"><h1>Job search report</h1><span class="date">{{ title_date }}</span></header>
 
-<section class="summary"><h2>Summary</h2>
+<section id="summary" class="summary"><h2 class="visually-hidden">Summary</h2>
 {% for s in summary %}
 <p>{{ s }}</p>
 {% endfor %}
 </section>
 
-<div class="cards">
-<section class="card"><h2>This week</h2>
-{% for k, v in week_stats %}
-<div class="stat"><span>{{ k }}</span><b>{{ v }}</b></div>
-{% endfor %}
-</section>
-<section class="card"><h2>Needs your attention</h2>
-{% if not attention_shown %}
-<p>Nothing needs your attention.</p>
-{% else %}
-<ul class="plain">{% for line in attention_shown %}<li>{{ line }}</li>{% endfor %}</ul>
-{% if attention_more %}
-<details><summary>+{{ attention_more|length }} more</summary>
-<ul class="plain">{% for line in attention_more %}<li>{{ line }}</li>{% endfor %}</ul></details>
-{% endif %}
-{% endif %}
-</section>
+<section id="this-week" class="card"><h2>This week</h2>
+<div class="progress-head">
+<span class="big">{{ week.applications }}</span><span class="of">of {{ week.target }}</span>
+<span class="badge {{ week.direction }}">{{ week.change }}</span>
 </div>
+<div class="track" role="progressbar" aria-label="Applications this week toward the weekly target" aria-valuemin="0" aria-valuemax="{{ week.target }}" aria-valuenow="{{ week.applications }}"><div class="fill" style="width: {{ week.percent }}%"></div></div>
+<p class="sub">{{ week.responses }} · {{ week.in_progress }} in progress</p>
+</section>
 
-<section><h2>Weekly</h2>
-<svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" role="img" aria-label="Applications per week">
-{% for b in chart.bars %}
-<g><title>{{ b.tip }}</title><rect class="bar" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="2"></rect>
-{%- if b.dot_y %}<circle class="dot" cx="{{ b.cx }}" cy="{{ b.dot_y }}" r="4"></circle>{% endif %}</g>
-<text x="{{ b.cx }}" y="{{ chart.label_y }}" text-anchor="middle">{{ b.label }}</text>
+<section id="totals"><h2 class="visually-hidden">Totals</h2>
+<div class="tiles">
+{% for t in tiles %}
+<div class="tile {{ t.cls }}"><span class="tile-value">{{ t.value }}</span><span class="tile-label">{{ t.label }}</span></div>
 {% endfor %}
-<line class="target" x1="{{ chart.left }}" x2="{{ chart.right }}" y1="{{ chart.target_y }}" y2="{{ chart.target_y }}"></line>
-<text x="{{ chart.right + 6 }}" y="{{ chart.target_label_y }}">target {{ chart.target }}</text>
-<text x="{{ chart.left - 6 }}" y="{{ chart.zero_y }}" text-anchor="end">0</text>
-<text x="{{ chart.left - 6 }}" y="{{ chart.top_y }}" text-anchor="end">{{ chart.top_value }}</text>
+</div>
+</section>
+
+<section id="attention" class="card"><h2>Needs your attention</h2>
+{% if not attention_shown %}
+<p class="calm">Nothing needs your attention.</p>
+{% else %}
+<ul class="chips">
+{% for c in attention_shown %}
+{{ chip(c) }}
+{% endfor %}
+</ul>
+{% if attention_more %}
+<details class="more"><summary>+{{ attention_more|length }} more</summary>
+<ul class="chips">
+{% for c in attention_more %}
+{{ chip(c) }}
+{% endfor %}
+</ul></details>
+{% endif %}
+{% endif %}
+</section>
+
+<section id="weekly"><h2>Weekly</h2>
+<svg class="chart" viewBox="0 0 {{ weekly.width }} {{ weekly.height }}" role="img" aria-label="Applications per week">
+{% for b in weekly.bars %}
+<g><title>{{ b.tip }}</title><rect class="bar{% if b.hit %} hit{% endif %}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"></rect>
+{%- if b.dot_y %}<circle class="dot" cx="{{ b.cx }}" cy="{{ b.dot_y }}" r="5"></circle>{% endif %}</g>
+<text class="axis{% if b.alt %} alt{% endif %}" x="{{ b.cx }}" y="{{ weekly.label_y }}" text-anchor="middle">{{ b.label }}</text>
+{% endfor %}
+<line class="target" x1="{{ weekly.left }}" x2="{{ weekly.right }}" y1="{{ weekly.target_y }}" y2="{{ weekly.target_y }}"></line>
+<text class="axis" x="{{ weekly.right + 6 }}" y="{{ weekly.target_label_y }}">target {{ weekly.target }}</text>
+<text class="axis" x="{{ weekly.left - 6 }}" y="{{ weekly.zero_y }}" text-anchor="end">0</text>
+<text class="axis" x="{{ weekly.left - 6 }}" y="{{ weekly.top_y }}" text-anchor="end">{{ weekly.top_value }}</text>
 </svg>
-<p class="note">Bars: applications per week. Dots: those that got a response. Dashed line: weekly target.</p>
+<p class="note"><span class="key bar-key"></span>Applications <span class="key hit-key"></span>At or above target <span class="key dot-key"></span>Got a response <span class="key line-key"></span>Target</p>
 <details><summary>Show numbers</summary>{{ table(weekly_numbers) }}</details>
 </section>
 
-<section><h2>Monthly</h2>
-{% if monthly %}{{ table(monthly) }}{% else %}<p>No applications yet.</p>{% endif %}
+<section id="monthly"><h2>Monthly</h2>
+{% if monthly %}
+<svg class="chart" viewBox="0 0 {{ monthly.width }} {{ monthly.height }}" role="img" aria-label="Applications and responses per month">
+{% for g in monthly.groups %}
+<g><title>{{ g.apps.tip }}</title><rect class="bar" x="{{ g.apps.x }}" y="{{ g.apps.y }}" width="{{ monthly.bar_w }}" height="{{ g.apps.h }}" rx="3"></rect></g>
+<g><title>{{ g.resp.tip }}</title><rect class="resp" x="{{ g.resp.x }}" y="{{ g.resp.y }}" width="{{ monthly.bar_w }}" height="{{ g.resp.h }}" rx="3"></rect></g>
+<text class="axis{% if g.alt %} alt{% endif %}" x="{{ g.cx }}" y="{{ monthly.label_y }}" text-anchor="middle">{{ g.label }}</text>
+{% endfor %}
+<text class="axis" x="{{ monthly.left - 6 }}" y="{{ monthly.zero_y }}" text-anchor="end">0</text>
+<text class="axis" x="{{ monthly.left - 6 }}" y="{{ monthly.top_y }}" text-anchor="end">{{ monthly.top_value }}</text>
+</svg>
+<p class="note"><span class="key bar-key"></span>Applications <span class="key resp-key"></span>Responses</p>
+<details><summary>Show numbers</summary>{{ table(monthly_numbers) }}</details>
+{% else %}
+<p class="calm">No applications yet.</p>
+{% endif %}
 </section>
 
-<section><h2>Your responses ({{ responses_count }})</h2>
-{% if responses %}{{ table(responses) }}{% else %}<p>No responses yet.</p>{% endif %}
+<section id="pipeline"><h2>Pipeline</h2>
+<ol class="pipeline">
+{% for label, count in pipeline %}
+<li><span class="step-value">{{ count }}</span><span class="step-label">{{ label }}</span></li>
+{% endfor %}
+</ol>
 </section>
 
-<section><h2>Top 10 companies, with outcomes</h2>
-{% if top %}{{ table(top) }}{% else %}<p>No applications yet.</p>{% endif %}
+<section id="responses"><h2>Your responses ({{ responses|length }})</h2>
+{% if responses %}
+<div class="response-cards">
+{% for r in responses %}
+<article class="response-card">
+<h3>{{ r.company }}</h3>
+<p class="role">{{ r.position }}</p>
+<p class="pills"><span class="pill stage">{{ r.stage }}</span><span class="pill {{ r.outcome_cls }}">{{ r.outcome }}</span></p>
+<details><summary>Details</summary>
+<dl>
+{% for k, v in r.facts %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
+{% if r.link %}<dt>Link</dt><dd>{{ cell(r.link) }}</dd>{% endif %}
+</dl>
+</details>
+</article>
+{% endfor %}
+</div>
+{% else %}
+<p class="calm">No responses yet.</p>
+{% endif %}
 </section>
 
-<section><h2>No reply after {{ no_reply_days }} days</h2>
+<section id="top"><h2>Top 10 companies, with outcomes</h2>
+{% if top %}
+<ul class="company-bars">
+{% for c in top %}
+<li class="company {{ c.mark }}">
+<span class="company-name">{{ c.name }}</span>
+<svg class="hbar" viewBox="0 0 100 10" preserveAspectRatio="none" role="img" aria-label="{{ c.tip }}"><title>{{ c.tip }}</title>
+<rect class="seg-response" x="0" y="0" width="{{ c.green }}" height="10"></rect>
+<rect class="seg-rejected" x="{{ c.red_x }}" y="0" width="{{ c.red }}" height="10"></rect>
+<rect class="seg-rest" x="{{ c.rest_x }}" y="0" width="{{ c.rest }}" height="10"></rect>
+</svg>
+<span class="company-text">{{ c.text }}</span>
+</li>
+{% endfor %}
+</ul>
+<p class="note"><span class="key resp-key"></span>Got a response <span class="key rej-key"></span>Rejected, no response <span class="key bar-key"></span>No news yet</p>
+{% else %}
+<p class="calm">No applications yet.</p>
+{% endif %}
+</section>
+
+<section id="no-reply" class="quiet"><h2>No reply after {{ no_reply_days }} days</h2>
 <p>{{ no_reply_total }} with no reply after {{ no_reply_days }} days.</p>
 {% if no_reply_months %}
 <details><summary>By month</summary>
@@ -93,15 +166,15 @@
 {% endif %}
 </section>
 
-<section><details><summary><h2>More details</h2></summary>
+<section id="details" class="quiet"><details><summary><h2>More details</h2></summary>
 <p class="note">Rejection notices show how often companies tell you, not how well you did.</p>
 {% for d in details %}
 <h3>{{ d.title }}</h3>
-{% if d.table.rows %}{{ table(d.table) }}{% else %}<p class="muted-text">None.</p>{% endif %}
+{% if d.table.rows %}{{ table(d.table) }}{% else %}<p class="note">None.</p>{% endif %}
 {% endfor %}
 </details></section>
 
-<section><details><summary><h2>Data check ({{ issue_count }})</h2></summary>
+<section id="data-check" class="quiet"><details><summary><h2>Data check ({{ issue_count }})</h2></summary>
 {% if not issues %}
 <p>No issues found.</p>
 {% else %}

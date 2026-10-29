@@ -444,10 +444,35 @@ def test_data_check():
     assert metrics.data_check([F()], S, excel=True) == []
 
 
+def test_attention_items_kinds():
+    items = metrics.attention_items(ATTENTION_ROWS, S, TODAY)
+    assert [kind for kind, _ in items] == ["turn"] * 3 + ["follow"] * 3 + ["many"]
+    assert [text for _, text in items] == metrics.attention(ATTENTION_ROWS, S, TODAY)
+
+
+def test_totals_and_pipeline():
+    rows = [F(), F(), F(outcome="Rejected"),
+            F(outcome="Awaiting reply", stage="Initial Screening"), F(outcome="Applied", stage="Interview"),
+            F(outcome="In progress", stage="Online Assessment"), F(outcome="Rejected", stage="Interview")]
+    assert metrics.totals(rows) == metrics.Totals(applied=7, responses=4, awaiting=2, rejected=2)
+    assert metrics.pipeline(rows) == [("Applied", 7), ("Responses", 4), ("Initial Screening", 3), ("Interview", 2)]
+    assert metrics.pipeline([]) == [("Applied", 0), ("Responses", 0), ("Initial Screening", 0), ("Interview", 0)]
+
+
+def test_top_companies_rejected_with_no_response():
+    rows = [F(company="Gamma", outcome="Rejected"), F(company="Gamma", outcome="Rejected", stage="Interview"),
+            F(company="Gamma", outcome="Rejected"), F(company="Gamma")]
+    gamma = metrics.top_companies(rows, S)[0]
+    assert (gamma.applications, gamma.responses, gamma.rejected, gamma.rejected_silent) == (4, 1, 3, 2)
+
+
 # ---------- render ----------
 
-HEADINGS = ["Summary", "This week", "Needs your attention", "Weekly", "Monthly", "Your responses (",
-            "Top 10 companies, with outcomes", "No reply after 30 days", "More details", "Data check ("]
+SECTIONS = ["summary", "this-week", "totals", "attention", "weekly", "monthly", "pipeline", "responses", "top",
+            "no-reply", "details", "data-check"]
+HEADINGS = ["Summary", "This week", "Totals", "Needs your attention", "Weekly", "Monthly", "Pipeline",
+            "Your responses (", "Top 10 companies, with outcomes", "No reply after 30 days", "More details",
+            "Data check ("]
 GENERATED = datetime(2026, 10, 28, 9, 5)
 
 
@@ -455,26 +480,40 @@ def page(rows, excel=True):
     return render.page(rows, S, TODAY, excel=excel, source_name="tracker.xlsx", generated=GENERATED)
 
 
+def section(html, name):
+    return re.search(rf'<section id="{name}".*?</section>', html, re.S).group(0)
+
+
 def test_sections_in_order():
     html = page(ATTENTION_ROWS + WEEK_ROWS)
+    assert re.findall(r'<section id="([^"]+)"', html) == SECTIONS
     headings = re.findall(r"<h2[^>]*>(.*?)</h2>", html)
     assert len(headings) == len(HEADINGS)
     for heading, start in zip(headings, HEADINGS):
         assert heading.startswith(start), (heading, start)
-    assert "Your responses (11)" in headings[5]
+    assert "Your responses (11)" in headings[7]
+
+
+def test_sections_present_with_no_rows():
+    html = page([])
+    assert re.findall(r'<section id="([^"]+)"', html) == SECTIONS
+    assert "No applications yet." in section(html, "monthly") and "No responses yet." in section(html, "responses")
 
 
 def test_tracker_text_is_escaped():
-    html = page([F(company="<script>alert(1)</script>", position="A & B", stage="Interview", outcome="In progress",
-                   remarks="<b>x</b>")])
-    assert "<script>alert" not in html
-    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    bad = "<script>alert(1)</script>"
+    html = page([F(company=bad, position="A & B", stage="Interview", outcome="In progress", remarks="<b>x</b>",
+                   posted=f"Posted today-{bad}")] * 5)
+    assert "<script" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in section(html, "responses")  # card
+    assert "<title>&lt;script&gt;alert(1)&lt;/script&gt;: 5 applications" in section(html, "top")  # SVG title
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;: Interview to do" in section(html, "attention")  # chip
     assert "A &amp; B" in html
 
 
 def test_no_external_requests():
     html = page(ATTENTION_ROWS + WEEK_ROWS + [F(company="Bad", url="javascript:alert(1)", stage="Interview")])
-    for banned in ("<script", "<link", "@import", "url(", "javascript:"):
+    for banned in ("<script", "<link", "@import", "url(", "javascript:", "<iframe", "<img", "src="):
         assert banned not in html.lower(), banned
     links = re.findall(r'<a href="([^"]*)"[^>]*>', html)
     assert links and all(u.startswith("https://") for u in links)
@@ -483,29 +522,139 @@ def test_no_external_requests():
     assert "http" not in without_links
 
 
+def test_css_is_embedded_with_tokens_and_dark_mode():
+    css = re.search(r"<style>(.*)</style>", page([]), re.S).group(1)
+    assert css.index(":root {") < css.index("body {")
+    assert all(f"--{token}:" in css for token in ("green", "blue", "amber", "red", "grey", "radius", "space-4",
+                                                    "text-base"))
+    assert "@media (prefers-color-scheme: dark)" in css
+
+
 def test_job_link_shows_the_domain():
     html = page([F(url="https://www.jobs.lever.co/acme/1", stage="Interview", outcome="Awaiting reply")])
-    assert re.search(r'<a href="https://www.jobs.lever.co/acme/1"[^>]*>jobs.lever.co</a>', html)
+    assert re.search(r'<a href="https://www.jobs.lever.co/acme/1"[^>]*>jobs.lever.co</a>', section(html, "responses"))
 
 
-def test_attention_card_cap_and_empty():
-    html = page(ATTENTION_ROWS)
-    assert "Acme: 5 applications, no response" in html and "+2 more" in html
+def test_this_week_progress_and_badge():
+    html = page(WEEK_ROWS)
+    assert "This week: 3 applications (target 25, last week 2). 1 new response: Delta (Interview)." in html
+    week = section(html, "this-week")
+    assert '<span class="big">3</span><span class="of">of 25</span>' in week
+    assert '<span class="badge up">↑ 1 from last week</span>' in week
+    assert 'style="width: 12%"' in week
+    assert "1 new response · 1 in progress" in week
+    over = section(page([F(applied=d(10, 27))] * 30), "this-week")
+    assert 'style="width: 100%"' in over and '<span class="big">30</span>' in over
+    assert '<span class="badge down">↓ 2 from last week</span>' in page([F(applied=d(10, 20))] * 2)
+    assert '<span class="badge same">same as last week</span>' in page([])
+
+
+def test_stat_tiles():
+    tiles = section(page(WEEK_ROWS + [F(outcome="Rejected")]), "totals")
+    found = re.findall(r'<div class="tile ?([a-z]*)"><span class="tile-value">(\d+)</span>'
+                       r'<span class="tile-label">([^<]+)</span>', tiles)
+    assert found == [("", "11", "Applied"), ("response", "3", "Responses"), ("waiting", "2", "Awaiting reply"),
+                     ("rejected", "1", "Rejected")]
+
+
+def chips(html):
+    return re.findall(r'<li class="chip (\w+)"><span class="chip-kind">([^<]+)</span> <span class="chip-text">'
+                      r'([^<]+)</span>', html)
+
+
+def test_attention_chips_by_type():
+    att = section(page(ATTENTION_ROWS), "attention")
+    assert chips(att) == [
+        ("turn", "Your turn", "Gamma: Interview to do since 10 days"),
+        ("turn", "Your turn", "Beta: Online Assessment to do since 3 days"),
+        ("turn", "Your turn", "Nu: Interview to do"),
+        ("follow", "Follow up", "Delta: Interview, no reply for 27 days"),
+        ("follow", "Follow up", "Omicron: Initial Screening, no reply for 18 days"),
+        ("follow", "Follow up", "Epsilon: Initial Screening, waiting (date unknown)"),
+        ("many", "Many applications", "Acme: 5 applications, no response"),
+    ]
+    assert "more</summary>" not in att
     assert "Nothing needs your attention." in page([F()])
 
 
-def test_this_week_card_and_summary():
-    html = page(WEEK_ROWS)
-    assert "This week: 3 applications (target 25, last week 2). 1 new response: Delta (Interview)." in html
-    assert "3 · ↑ 1 from last week" in html
+def test_attention_many_applications_capped_at_3():
+    rows = [F(company=f"Many{i}", applied=d(9, 1 + j)) for i in range(5) for j in range(5)]
+    rows.append(F(company="Beta", outcome="In progress", stage="Interview"))
+    shown, more = section(page(rows), "attention").split('<details class="more">')
+    assert [c[0] for c in chips(shown)] == ["turn", "many", "many", "many"]
+    assert "<summary>+2 more</summary>" in more and [c[0] for c in chips(more)] == ["many", "many"]
 
 
 def test_weekly_chart():
-    html = page(WEEK_ROWS)
-    assert html.count("<rect") >= 12
-    assert "<title>Week of Oct 26: 3 applications, 0 responses</title>" in html
-    assert 'stroke-dasharray' in html  # the target line
-    assert "Oct 26" in html
+    weekly = section(page(WEEK_ROWS + [F(applied=d(10, 20))] * 25), "weekly")
+    assert weekly.count('<rect class="bar') == 12
+    assert weekly.count('<rect class="bar hit"') == 1  # last week: 27 of 25
+    assert "<title>Week of Oct 26: 3 applications, 0 responses</title>" in weekly
+    assert 'class="target"' in weekly and "Oct 26" in weekly and "Show numbers" in weekly
+
+
+def test_monthly_chart():
+    rows = ([F(applied=d(9, 1 + i)) for i in range(17)] + [F(applied=d(9, 20), outcome="Rejected", stage="Interview")]
+            + [F(applied=d(10, 2)), F(applied=d(10, 3), outcome="In progress", stage="Interview")]
+            + [F(applied=date(2025, m, 3)) for m in (1, 11, 12)] + [F(applied=d(m, 3)) for m in range(1, 9)])
+    monthly = section(page(rows), "monthly")
+    chart, numbers = monthly.split("Show numbers")
+    assert "<table" not in chart and "<table" in numbers
+    assert chart.count('<rect class="bar"') == 12 and chart.count('<rect class="resp"') == 12  # last 12 months
+    assert "<title>October 2026: 2 applications</title>" in chart
+    assert "<title>September 2026: 1 response (1 of 18)</title>" in chart
+    assert "<td>January 2025</td>" in numbers  # every month in the numbers table
+    assert ">Nov 2025<" in chart and ">Jan 2026<" in chart and ">Feb<" in chart  # a year on the first and each Jan
+
+
+def test_pipeline_strip():
+    rows = [F(), F(stage="Online Assessment"), F(stage="Initial Screening"), F(stage="Interview")]
+    pipe = section(page(rows), "pipeline")
+    assert re.findall(r'<span class="step-value">(\d+)</span><span class="step-label">([^<]+)</span>', pipe) == [
+        ("4", "Applied"), ("3", "Responses"), ("2", "Initial Screening"), ("1", "Interview")]
+
+
+def test_response_cards_and_pills():
+    rows = [F(company="Prog", applied=d(10, 5), outcome="In progress", stage="Interview"),
+            F(company="Wait", applied=d(10, 4), outcome="Awaiting reply", stage="Interview", last_updated=d(10, 20)),
+            F(company="Late", applied=d(10, 3), outcome="Awaiting reply", stage="Initial Screening",
+              last_updated=d(10, 1)),
+            F(company="Rej", applied=d(10, 2), outcome="Rejected", stage="Online Assessment"),
+            F(company="None", applied=d(10, 1))]
+    cards = section(page(rows), "responses")
+    assert "<table" not in cards
+    found = re.findall(r'<h3>([^<]+)</h3>.*?<span class="pill stage">([^<]+)</span><span class="pill (\w+)">([^<]+)<',
+                       cards, re.S)
+    assert found == [("Prog", "Interview", "progress", "In progress"),
+                     ("Wait", "Interview", "waiting", "Awaiting reply"),
+                     ("Late", "Initial Screening", "followup", "Awaiting reply"),
+                     ("Rej", "Online Assessment", "rejected", "Rejected")]
+    assert cards.count("<details><summary>Details</summary>") == 4
+    assert "<dt>Source</dt><dd>Jobright</dd><dt>Job system</dt><dd>Lever</dd><dt>Applied</dt><dd>10/05/2026</dd>" in cards
+    assert "<dt>Last Updated</dt><dd>10/20/2026</dd>" in cards and "<dt>Link</dt>" in cards
+
+
+def test_top_companies_bars():
+    rows = ([F(company="Gamma", applied=d(10, 20)), F(company="Gamma", applied=d(10, 21), outcome="Rejected"),
+             F(company="Gamma", applied=d(10, 22), outcome="Rejected", stage="Interview")]
+            + [F(company="Acme", applied=d(9, 1 + i)) for i in range(6)])
+    top = section(page(rows), "top")
+    assert re.findall(r'<li class="company ?(\w*)">\s*<span class="company-name">([^<]+)</span>', top) == [
+        ("muted", "Acme"), ("green", "Gamma")]
+    assert '<span class="company-text">3 · 1 response · 2 rejected</span>' in top
+    assert '<span class="company-text">6 · 0 responses · 0 rejected</span>' in top
+    assert ("<title>Gamma: 3 applications, 1 response, 0 in progress or awaiting, 2 rejected, "
+            "last applied 10/22/2026</title>") in top
+    gamma = top.split('<span class="company-name">Gamma</span>')[1]
+    widths = re.findall(r'<rect class="seg-(\w+)" x="[\d.]+" y="0" width="([\d.]+)"', gamma)
+    assert widths == [("response", "16.7"), ("rejected", "16.7"), ("rest", "16.7")]  # 1 + 1 + 1 of 6
+
+
+def test_collapsed_sections_kept():
+    html = page([F(company="Old", applied=d(8, 1))])
+    assert "1 application with no reply after 30 days." in section(html, "no-reply")
+    assert "<summary><h2>More details</h2></summary>" in section(html, "details")
+    assert "<summary><h2>Data check (0)</h2></summary>" in section(html, "data-check")
 
 
 def test_footer_and_empty_tracker():
