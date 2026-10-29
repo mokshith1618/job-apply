@@ -21,6 +21,8 @@ from reporting.load import Settings
 
 HERE = Path(__file__).resolve().parent
 MONTHS_SHOWN = 12  # months in the monthly chart; the "Show numbers" table has them all
+# Each chart is drawn twice, shown by window width: wide for desktop, a taller narrow one for phones.
+WIDE, NARROW = "wide", "narrow"
 KIND_LABEL = {metrics.TURN: "Your turn", metrics.FOLLOW_UP: "Follow up", metrics.MANY: "Many applications"}
 
 
@@ -99,10 +101,10 @@ def attention(items: list[tuple[str, str]]) -> tuple[list[dict], list[dict]]:
 
 # ---------- 5-6. charts ----------
 
-def weekly_chart(weeks: list[metrics.Week], target: int) -> dict:
+def weekly_chart(weeks: list[metrics.Week], target: int, shape: str = WIDE) -> dict:
     """Bars = applications per week (brighter at or above the target), a dot = how many of them got a
-    response, dashed line = target."""
-    width, height, left, right, top, bottom = 920, 220, 34, 70, 12, 26
+    response, dashed line = target. The narrow shape labels every other week."""
+    width, height, left, right, top, bottom = (920, 220, 34, 70, 12, 26) if shape == WIDE else (400, 230, 30, 62, 12, 26)
     plot_w, plot_h = width - left - right, height - top - bottom
     top_value = max([w.applications for w in weeks] + [target, 1])
 
@@ -119,16 +121,17 @@ def weekly_chart(weeks: list[metrics.Week], target: int) -> dict:
             "hit": target > 0 and w.applications >= target,
             "x": n(x), "y": n(y(w.applications)), "w": n(bar_w), "h": n(y(0) - y(w.applications)),
             "cx": n(x + bar_w / 2), "dot_y": n(y(w.responses)) if w.responses else None,
-            "label": short_day(w.start), "alt": (len(weeks) - 1 - i) % 2 == 1})
-    return {"width": width, "height": height, "bars": bars, "left": left, "right": left + plot_w,
+            "label": short_day(w.start), "alt": shape == NARROW and (len(weeks) - 1 - i) % 2 == 1})
+    return {"shape": shape, "width": width, "height": height, "bars": bars, "left": left, "right": left + plot_w,
             "target": target, "target_y": n(y(target)), "target_label_y": n(y(target) + 4),
             "zero_y": n(y(0)), "top_value": top_value, "top_y": n(y(top_value) + 8), "label_y": height - 8}
 
 
-def monthly_chart(months: list[metrics.Month]) -> dict:
-    """Paired bars per month, oldest left: applications (neutral) and responses (green)."""
+def monthly_chart(months: list[metrics.Month], shape: str = WIDE) -> dict:
+    """Paired bars per month, oldest left: applications (neutral) and responses (green). The narrow shape
+    labels every other month."""
     shown = list(reversed(months[:MONTHS_SHOWN]))
-    width, height, left, right, top, bottom = 920, 180, 34, 12, 12, 26
+    width, height, left, right, top, bottom = (920, 180, 34, 12, 12, 26) if shape == WIDE else (400, 200, 30, 6, 12, 26)
     plot_w, plot_h = width - left - right, height - top - bottom
     top_value = max([m.applications for m in shown] + [1])
 
@@ -146,8 +149,8 @@ def monthly_chart(months: list[metrics.Month]) -> dict:
             "resp": {"x": n(mid + 1), "y": n(y(m.responses)), "h": n(y(0) - y(m.responses)),
                      "tip": f"{m.start:%B %Y}: {metrics.plural(m.responses, 'response')} ({m.rate})"},
             "cx": n(mid), "label": f"{m.start:%b %Y}" if new_year else f"{m.start:%b}",
-            "alt": (len(shown) - 1 - i) % 2 == 1})
-    return {"width": width, "height": height, "groups": groups, "bar_w": n(bar_w), "left": left,
+            "alt": shape == NARROW and (len(shown) - 1 - i) % 2 == 1})
+    return {"shape": shape, "width": width, "height": height, "groups": groups, "bar_w": n(bar_w), "left": left,
             "zero_y": n(y(0)), "top_value": top_value, "top_y": n(y(top_value) + 8), "label_y": height - 8}
 
 
@@ -244,8 +247,10 @@ def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, sou
         week=this_week(metrics.this_week(rows, today), settings.weekly_target),
         tiles=tiles(metrics.totals(rows)),
         attention_shown=shown, attention_more=more,
-        weekly=weekly_chart(weeks, settings.weekly_target), weekly_numbers=weekly_numbers(weeks),
-        monthly=monthly_chart(months) if months else None, monthly_numbers=monthly_table(months),
+        weekly=[weekly_chart(weeks, settings.weekly_target, shape) for shape in (WIDE, NARROW)],
+        weekly_numbers=weekly_numbers(weeks),
+        monthly=[monthly_chart(months, shape) for shape in (WIDE, NARROW)] if months else None,
+        monthly_numbers=monthly_table(months),
         pipeline=metrics.pipeline(rows),
         responses=response_cards(responses, settings),
         top=company_bars(metrics.top_companies(rows, settings)),

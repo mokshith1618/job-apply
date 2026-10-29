@@ -17,7 +17,7 @@
   --space-7: 48px;
   /* font sizes */
   --text-xs: 0.78rem; --text-sm: 0.88rem; --text-base: 16px; --text-lead: 1.3rem; --text-h2: 1.05rem;
-  --text-big: 2.6rem; --text-tile: 2.1rem; --text-chart: 12px; --text-chart-narrow: 26px;
+  --text-big: 2.6rem; --text-tile: 2.1rem; --text-chart: 12px;
   /* radii */
   --radius-sm: 4px; --radius: 12px; --radius-pill: 999px;
 }
@@ -97,13 +97,13 @@ h1 { font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.04em; text-t
 
 /* ---------- 5-6. charts ---------- */
 svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+svg.chart.narrow { display: none; }
 svg .axis { fill: var(--faint); font-size: var(--text-chart); }
 svg .bar { fill: var(--bar); } svg .bar.hit { fill: var(--bar-hit); }
 svg .resp, svg .dot { fill: var(--green); }
 svg .target { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 5; }
-.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 6px 0 var(--space-3);
-  vertical-align: -1px; }
-.key:first-child { margin-left: 0; }
+.legend { white-space: nowrap; margin-right: var(--space-3); }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .bar-key { background: var(--bar); } .hit-key { background: var(--bar-hit); }
 .resp-key { background: var(--green); } .rej-key { background: var(--red); }
 .dot-key { background: var(--green); border-radius: 50%; }
@@ -111,17 +111,17 @@ svg .target { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 5; }
 
 /* ---------- 7. pipeline ---------- */
 .pipeline { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-5); }
+  gap: var(--space-6); }
 .pipeline li { position: relative; display: flex; flex-direction: column; padding: var(--space-3) 0 0;
   border-top: 3px solid var(--line); }
 .pipeline li:not(:first-child) { border-top-color: var(--green); }
-.pipeline li:not(:last-child)::after { content: "→"; position: absolute; right: calc(-1 * var(--space-5) + 4px);
-  top: var(--space-3); color: var(--faint); }
+.pipeline li:not(:last-child)::after { content: "→"; position: absolute; right: 0; top: var(--space-3);
+  width: var(--space-6); transform: translateX(100%); text-align: center; color: var(--faint); }
 .step-value { font-size: 1.7rem; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .step-label { color: var(--muted); font-size: var(--text-sm); }
 
 /* ---------- 8. responses ---------- */
-.response-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); }
+.response-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
 .response-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: var(--space-4); min-width: 0; }
 .response-card h3 { margin: 0; overflow-wrap: anywhere; }
@@ -165,13 +165,13 @@ footer { margin-top: var(--space-7); }
   .card { padding: var(--space-4); }
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .pipeline { grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
-  .pipeline li:nth-child(2)::after { content: none; }
+  .pipeline li:not(:last-child)::after { content: none; }
   .response-cards { grid-template-columns: 1fr; }
   .chip { flex-direction: column; gap: 0; }
   .chip-kind { flex: none; }
   .company { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1); }
   .company .hbar { grid-column: 1 / -1; grid-row: 2; }
   .company-text { grid-row: 1; grid-column: 2; }
-  svg .axis { font-size: var(--text-chart-narrow); }
-  svg .axis.alt { display: none; }
+  svg.chart.wide { display: none; }
+  svg.chart.narrow { display: block; }
 }

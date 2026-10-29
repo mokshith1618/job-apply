@@ -585,12 +585,22 @@ def test_attention_many_applications_capped_at_3():
     assert "<summary>+2 more</summary>" in more and [c[0] for c in chips(more)] == ["many", "many"]
 
 
+def charts(html):
+    """{"wide": svg, "narrow": svg}: each chart is drawn twice, CSS shows one by window width."""
+    return {m.group(1): m.group(0) for m in re.finditer(r'<svg class="chart (\w+)".*?</svg>', html, re.S)}
+
+
 def test_weekly_chart():
     weekly = section(page(WEEK_ROWS + [F(applied=d(10, 20))] * 25), "weekly")
-    assert weekly.count('<rect class="bar') == 12
-    assert weekly.count('<rect class="bar hit"') == 1  # last week: 27 of 25
-    assert "<title>Week of Oct 26: 3 applications, 0 responses</title>" in weekly
-    assert 'class="target"' in weekly and "Oct 26" in weekly and "Show numbers" in weekly
+    svg = charts(weekly)
+    assert list(svg) == ["wide", "narrow"]
+    for chart in svg.values():
+        assert chart.count('<rect class="bar') == 12
+        assert chart.count('<rect class="bar hit"') == 1  # last week: 27 of 25
+        assert "<title>Week of Oct 26: 3 applications, 0 responses</title>" in chart
+        assert 'class="target"' in chart and ">Oct 26<" in chart
+    assert ">Oct 19<" in svg["wide"] and ">Oct 19<" not in svg["narrow"]  # every other week labelled on phones
+    assert "Show numbers" in weekly
 
 
 def test_monthly_chart():
@@ -598,13 +608,17 @@ def test_monthly_chart():
             + [F(applied=d(10, 2)), F(applied=d(10, 3), outcome="In progress", stage="Interview")]
             + [F(applied=date(2025, m, 3)) for m in (1, 11, 12)] + [F(applied=d(m, 3)) for m in range(1, 9)])
     monthly = section(page(rows), "monthly")
-    chart, numbers = monthly.split("Show numbers")
-    assert "<table" not in chart and "<table" in numbers
-    assert chart.count('<rect class="bar"') == 12 and chart.count('<rect class="resp"') == 12  # last 12 months
-    assert "<title>October 2026: 2 applications</title>" in chart
-    assert "<title>September 2026: 1 response (1 of 18)</title>" in chart
+    chart_part, numbers = monthly.split("Show numbers")
+    assert "<table" not in chart_part and "<table" in numbers
+    svg = charts(chart_part)
+    assert list(svg) == ["wide", "narrow"]
+    for chart in svg.values():
+        assert chart.count('<rect class="bar"') == 12 and chart.count('<rect class="resp"') == 12  # last 12 months
+        assert "<title>October 2026: 2 applications</title>" in chart
+        assert "<title>September 2026: 1 response (1 of 18)</title>" in chart
     assert "<td>January 2025</td>" in numbers  # every month in the numbers table
-    assert ">Nov 2025<" in chart and ">Jan 2026<" in chart and ">Feb<" in chart  # a year on the first and each Jan
+    wide = svg["wide"]
+    assert ">Nov 2025<" in wide and ">Jan 2026<" in wide and ">Feb<" in wide  # a year on the first and each Jan
 
 
 def test_pipeline_strip():

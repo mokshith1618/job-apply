@@ -13,6 +13,30 @@
 </tbody></table></div>
 {% endmacro %}
 {% macro chip(c) %}<li class="chip {{ c.kind }}"><span class="chip-kind">{{ c.label }}</span> <span class="chip-text">{{ c.text }}</span></li>{% endmacro %}
+{% macro weekly_svg(c) %}
+<svg class="chart {{ c.shape }}" viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="Applications per week">
+{% for b in c.bars %}
+<g><title>{{ b.tip }}</title><rect class="bar{% if b.hit %} hit{% endif %}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"></rect>
+{%- if b.dot_y %}<circle class="dot" cx="{{ b.cx }}" cy="{{ b.dot_y }}" r="5"></circle>{% endif %}</g>
+{% if not b.alt %}<text class="axis" x="{{ b.cx }}" y="{{ c.label_y }}" text-anchor="middle">{{ b.label }}</text>{% endif %}
+{% endfor %}
+<line class="target" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ c.target_y }}" y2="{{ c.target_y }}"></line>
+<text class="axis" x="{{ c.right + 6 }}" y="{{ c.target_label_y }}">target {{ c.target }}</text>
+<text class="axis" x="{{ c.left - 6 }}" y="{{ c.zero_y }}" text-anchor="end">0</text>
+<text class="axis" x="{{ c.left - 6 }}" y="{{ c.top_y }}" text-anchor="end">{{ c.top_value }}</text>
+</svg>
+{% endmacro %}
+{% macro monthly_svg(c) %}
+<svg class="chart {{ c.shape }}" viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="Applications and responses per month">
+{% for g in c.groups %}
+<g><title>{{ g.apps.tip }}</title><rect class="bar" x="{{ g.apps.x }}" y="{{ g.apps.y }}" width="{{ c.bar_w }}" height="{{ g.apps.h }}" rx="3"></rect></g>
+<g><title>{{ g.resp.tip }}</title><rect class="resp" x="{{ g.resp.x }}" y="{{ g.resp.y }}" width="{{ c.bar_w }}" height="{{ g.resp.h }}" rx="3"></rect></g>
+{% if not g.alt %}<text class="axis" x="{{ g.cx }}" y="{{ c.label_y }}" text-anchor="middle">{{ g.label }}</text>{% endif %}
+{% endfor %}
+<text class="axis" x="{{ c.left - 6 }}" y="{{ c.zero_y }}" text-anchor="end">0</text>
+<text class="axis" x="{{ c.left - 6 }}" y="{{ c.top_y }}" text-anchor="end">{{ c.top_value }}</text>
+</svg>
+{% endmacro %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -71,33 +95,15 @@
 </section>
 
 <section id="weekly"><h2>Weekly</h2>
-<svg class="chart" viewBox="0 0 {{ weekly.width }} {{ weekly.height }}" role="img" aria-label="Applications per week">
-{% for b in weekly.bars %}
-<g><title>{{ b.tip }}</title><rect class="bar{% if b.hit %} hit{% endif %}" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="3"></rect>
-{%- if b.dot_y %}<circle class="dot" cx="{{ b.cx }}" cy="{{ b.dot_y }}" r="5"></circle>{% endif %}</g>
-<text class="axis{% if b.alt %} alt{% endif %}" x="{{ b.cx }}" y="{{ weekly.label_y }}" text-anchor="middle">{{ b.label }}</text>
-{% endfor %}
-<line class="target" x1="{{ weekly.left }}" x2="{{ weekly.right }}" y1="{{ weekly.target_y }}" y2="{{ weekly.target_y }}"></line>
-<text class="axis" x="{{ weekly.right + 6 }}" y="{{ weekly.target_label_y }}">target {{ weekly.target }}</text>
-<text class="axis" x="{{ weekly.left - 6 }}" y="{{ weekly.zero_y }}" text-anchor="end">0</text>
-<text class="axis" x="{{ weekly.left - 6 }}" y="{{ weekly.top_y }}" text-anchor="end">{{ weekly.top_value }}</text>
-</svg>
-<p class="note"><span class="key bar-key"></span>Applications <span class="key hit-key"></span>At or above target <span class="key dot-key"></span>Got a response <span class="key line-key"></span>Target</p>
+{% for chart in weekly %}{{ weekly_svg(chart) }}{% endfor %}
+<p class="note"><span class="legend"><span class="key bar-key"></span>Applications</span> <span class="legend"><span class="key hit-key"></span>At or above target</span> <span class="legend"><span class="key dot-key"></span>Got a response</span> <span class="legend"><span class="key line-key"></span>Target</span></p>
 <details><summary>Show numbers</summary>{{ table(weekly_numbers) }}</details>
 </section>
 
 <section id="monthly"><h2>Monthly</h2>
 {% if monthly %}
-<svg class="chart" viewBox="0 0 {{ monthly.width }} {{ monthly.height }}" role="img" aria-label="Applications and responses per month">
-{% for g in monthly.groups %}
-<g><title>{{ g.apps.tip }}</title><rect class="bar" x="{{ g.apps.x }}" y="{{ g.apps.y }}" width="{{ monthly.bar_w }}" height="{{ g.apps.h }}" rx="3"></rect></g>
-<g><title>{{ g.resp.tip }}</title><rect class="resp" x="{{ g.resp.x }}" y="{{ g.resp.y }}" width="{{ monthly.bar_w }}" height="{{ g.resp.h }}" rx="3"></rect></g>
-<text class="axis{% if g.alt %} alt{% endif %}" x="{{ g.cx }}" y="{{ monthly.label_y }}" text-anchor="middle">{{ g.label }}</text>
-{% endfor %}
-<text class="axis" x="{{ monthly.left - 6 }}" y="{{ monthly.zero_y }}" text-anchor="end">0</text>
-<text class="axis" x="{{ monthly.left - 6 }}" y="{{ monthly.top_y }}" text-anchor="end">{{ monthly.top_value }}</text>
-</svg>
-<p class="note"><span class="key bar-key"></span>Applications <span class="key resp-key"></span>Responses</p>
+{% for chart in monthly %}{{ monthly_svg(chart) }}{% endfor %}
+<p class="note"><span class="legend"><span class="key bar-key"></span>Applications</span> <span class="legend"><span class="key resp-key"></span>Responses</span></p>
 <details><summary>Show numbers</summary>{{ table(monthly_numbers) }}</details>
 {% else %}
 <p class="calm">No applications yet.</p>
@@ -149,7 +155,7 @@
 </li>
 {% endfor %}
 </ul>
-<p class="note"><span class="key resp-key"></span>Got a response <span class="key rej-key"></span>Rejected, no response <span class="key bar-key"></span>No news yet</p>
+<p class="note"><span class="legend"><span class="key resp-key"></span>Got a response</span> <span class="legend"><span class="key rej-key"></span>Rejected, no response</span> <span class="legend"><span class="key bar-key"></span>No news yet</span></p>
 {% else %}
 <p class="calm">No applications yet.</p>
 {% endif %}
