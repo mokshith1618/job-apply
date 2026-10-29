@@ -19,9 +19,10 @@ SP_URL = "https://job-boards.greenhouse.io/spglobal/jobs/555"
 LEVER_URL = "https://jobs.lever.co/zenith/abc-123"
 
 
-def row(r, company, position, url="", outcome="Applied", remarks="", date="10/1/2026", target=None, stage=""):
+def row(r, company, position, url="", outcome="Applied", remarks="", date="10/1/2026", target=None, stage="",
+        last_updated=""):
     values = {"Company": company, "Position": position, "URL": url, "Posted date/ Source": "Posted today-Other",
-              "Date": date, "Outcome": outcome, "Stage": stage, "Last Updated": "", "Remarks": remarks}
+              "Date": date, "Outcome": outcome, "Stage": stage, "Last Updated": last_updated, "Remarks": remarks}
     urls = [u for u in (url, target) if u]
     return (r, values, urls)
 
@@ -126,20 +127,21 @@ def test_parse_selection():
         assert find.parse_selection(bad, 5) is None, bad
 
 
-def test_status_menu_lists_outcomes_then_stages():
-    assert find.STATUS_PROMPT == ("New status: 1 Applied  2 Rejected  3 Awaiting reply  4 In progress  "
-                                  "5 Online Assessment  6 Initial Screening  7 Interview ")
+def test_outcome_and_stage_prompts():
+    assert find.OUTCOME_PROMPT == "Outcome: 1 Applied  2 In progress  3 Awaiting reply  4 Rejected  (Enter = keep) "
+    assert find.STAGE_PROMPT == "Stage:   1 Online Assessment  2 Initial Screening  3 Interview  (Enter = keep) "
+    assert find.STAGE_REQUIRED_PROMPT == "Stage:   1 Online Assessment  2 Initial Screening  3 Interview "
 
 
-def test_parse_status_outcome_keeps_stage_and_stage_sets_awaiting_reply():
-    assert find.parse_status("2") == ("Rejected", "")
-    assert find.parse_status("awaiting  REPLY") == ("Awaiting reply", "")
-    assert find.parse_status("5") == ("Awaiting reply", "Online Assessment")
-    assert find.parse_status("6") == ("Awaiting reply", "Initial Screening")
-    assert find.parse_status(" online assessment ") == ("Awaiting reply", "Online Assessment")
-    assert find.parse_status("INTERVIEW") == ("Awaiting reply", "Interview")
-    for bad in ("", "0", "8", "offer", "rej"):
-        assert find.parse_status(bad) is None, bad
+def test_parse_choice_by_number_or_name():
+    assert find.parse_choice("2", find.OUTCOME_MENU) == "In progress"
+    assert find.parse_choice("awaiting  REPLY", find.OUTCOME_MENU) == "Awaiting reply"
+    assert find.parse_choice("4", find.OUTCOME_MENU) == "Rejected"
+    assert find.parse_choice(" online assessment ", tracker.STAGES) == "Online Assessment"
+    assert find.parse_choice("3", tracker.STAGES) == "Interview"
+    for bad in ("", "0", "5", "offer", "rej", "interview"):
+        assert find.parse_choice(bad, find.OUTCOME_MENU) is None, bad
+    assert find.parse_choice("4", tracker.STAGES) is None
 
 
 def test_format_note_appends_with_date():
@@ -173,19 +175,22 @@ def test_table_shows_rows_and_domain():
     hits = [
         row(640, "Acme", "DevOps Engineer", SP_URL, outcome="Rejected", remarks="Same day rejection",
             date="8/21/2026", stage="Interview"),
-        row(912, "Acme", "Software Engineer I", ACME_URL, date=datetime(2026, 10, 18)),
+        row(912, "Acme", "Software Engineer I", ACME_URL, date=datetime(2026, 10, 18), outcome="In progress",
+            stage="Online Assessment", last_updated=datetime(2026, 10, 20)),
     ]
     shown, out = show(hits)
     assert [r for r, _, _ in shown] == [912, 640]
     lines = out.splitlines()
     assert lines[0] == '2 jobs found for "acme"'
     first = next(line for line in lines if "912" in line).split()
-    assert first == ["1", "912", "10/18/2026", "Acme", "Software", "Engineer", "I", "Applied",
-                     "acme.wd5.myworkdayjobs.com"]
+    assert first == ["1", "912", "10/18/2026", "Acme", "Software", "Engineer", "I", "In", "progress", "Online",
+                     "Assessment", "10/20/2026", "acme.wd5.myworkdayjobs.com"]
     second = next(line for line in lines if "640" in line)
-    assert "Rejected  Interview" in second
+    assert second.split()[6:8] == ["Rejected", "Interview"]
     assert second.index("Interview") < second.index("Same day rejection") < second.index("job-boards.greenhouse.io")
-    assert lines[2].split() == ["#", "Row", "Date", "Company", "Position", "Outcome", "Stage", "Remarks", "Link"]
+    assert lines[2].split() == ["#", "Row", "Date", "Company", "Position", "Outcome", "Stage", "Last", "Updated",
+                                "Remarks", "Link"]
+    assert find.OUTCOME_STYLES == {"In progress": "bold", "Rejected": "dim"}
     assert second.split()[:3] == ["2", "640", "08/21/2026"]
 
 
@@ -484,10 +489,10 @@ def run_find(tracker_file, ws, script, text="example labs", extra=()):
 
 def test_update_goes_to_sheet_then_excel_and_table_shown_again(dup_tracker, capsys):
     ws = known_sheet()
-    script = Script("1", "2", "Phone screen", "y", "")
+    script = Script("1", "4", "Phone screen", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
-    assert script.prompts == [find.ROWS_PROMPT, find.STATUS_PROMPT, find.NOTE_PROMPT,
-                              "Update 1 row to Rejected? [y/N] ", find.ROWS_PROMPT]
+    assert script.prompts == [find.ROWS_PROMPT, find.OUTCOME_PROMPT, find.NOTE_PROMPT,  # Rejected: no Stage question
+                              'Update 1 row: Rejected · note "Phone screen"? [y/N] ', find.ROWS_PROMPT]
     assert at(ws, 2, "Outcome", "Stage", "Remarks") == ["Rejected", "", "10/21/2026 Phone screen"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}", f"I{KNOWN_ROW}") == \
         ["Rejected", None, "10/21/2026 Phone screen"]
@@ -500,16 +505,16 @@ def test_update_goes_to_sheet_then_excel_and_table_shown_again(dup_tracker, caps
 
 def test_invalid_answers_are_asked_again(dup_tracker):
     ws = known_sheet()
-    script = Script("x", "5", "1", "offer", "8", "5", "", "y", "")
+    script = Script("x", "5", "1", "offer", "9", "3", "x", "1", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
-    assert script.prompts[:6] == [find.ROWS_PROMPT] * 3 + [find.STATUS_PROMPT] * 3
-    assert script.prompts[7] == "Update 1 row to Online Assessment? [y/N] "
+    assert script.prompts[:8] == [find.ROWS_PROMPT] * 3 + [find.OUTCOME_PROMPT] * 3 + [find.STAGE_PROMPT] * 2
+    assert script.prompts[9] == "Update 1 row: Awaiting reply · Online Assessment? [y/N] "
     assert at(ws, 2, "Outcome", "Stage") == ["Awaiting reply", "Online Assessment"]
 
 
 def test_interview_then_rejected_keeps_the_stage(dup_tracker):
     ws = known_sheet()
-    assert run_find(dup_tracker, ws, Script("1", "7", "", "y", "1", "rejected", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "3", "3", "", "y", "1", "rejected", "", "y", "")) == 0
     assert at(ws, 2, "Outcome", "Stage") == ["Rejected", "Interview"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Rejected", "Interview"]
 
@@ -517,7 +522,7 @@ def test_interview_then_rejected_keeps_the_stage(dup_tracker):
 def test_anything_but_y_writes_nothing(dup_tracker, capsys):
     ws = known_sheet()
     before = dup_tracker.read_bytes()
-    assert run_find(dup_tracker, ws, Script("1", "2", "note", "n", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "4", "note", "n", "")) == 0
     assert ws.updates == [] and dup_tracker.read_bytes() == before
     assert "Nothing changed." in capsys.readouterr().out
 
@@ -545,14 +550,14 @@ def test_sheet_down_at_write_keeps_update_pending_then_flushes(dup_tracker, caps
         raise requests.exceptions.ConnectionError("offline")
 
     ws.batch_update = offline
-    assert run_find(dup_tracker, ws, Script("1", "2", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "4", "", "y", "")) == 0
     pending = dup_tracker.parent / "pending_sheet_updates.json"
     assert [u.outcome for u in tracker.load_pending_updates(pending)] == ["Rejected"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]  # Excel still written
     assert "pending_sheet_updates.json" in capsys.readouterr().out
 
     ws.batch_update = real_update  # back online: the waiting update goes first, then the new one
-    assert run_find(dup_tracker, ws, Script("1", "5", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "3", "1", "", "y", "")) == 0
     assert [(c, v) for c, v in ws.updates if c in ("F2", "G2")] == \
         [("F2", "Rejected"), ("F2", "Awaiting reply"), ("G2", "Online Assessment")]
     assert not pending.exists()
@@ -566,7 +571,7 @@ def test_sheet_unreachable_at_start_searches_excel(dup_tracker, tmp_path, monkey
         raise SheetUnavailable("offline")
 
     monkeypatch.setattr(sheet_tracker, "open_sheet", unreachable)
-    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "7", "", "y", ""),
+    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "3", "3", "", "y", ""),
                      today=NOTE_DAY) == 0
     out = capsys.readouterr().out
     assert "Google Sheet unavailable: offline" in out and "Searching tracker.xlsx instead" in out
@@ -590,7 +595,7 @@ def locked_once(monkeypatch, times=1):
 
 def test_excel_open_asks_to_close_it_then_writes(dup_tracker, monkeypatch):
     locked_once(monkeypatch)
-    script = Script("1", "2", "", "y", "", "")
+    script = Script("1", "4", "", "y", "", "")
     assert run_find(dup_tracker, None, script, extra=["--no-sheet"]) == 0
     assert "Close Excel, then press Enter to retry, s = leave it pending" in script.prompts[4]
     assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]
@@ -603,7 +608,7 @@ def test_excel_open_s_keeps_update_pending_and_apply_writes_it_later(dup_tracker
     import apply
 
     real_save = locked_once(monkeypatch, times=99)
-    assert run_find(dup_tracker, None, Script("1", "2", "Same day rejection", "y", "s", ""),
+    assert run_find(dup_tracker, None, Script("1", "4", "Same day rejection", "y", "s", ""),
                     extra=["--no-sheet"]) == 0
     pending = tracker.pending_updates_path_for(dup_tracker)
     assert tracker.load_pending_updates(pending)[0].note == "Same day rejection"
@@ -746,3 +751,62 @@ def test_old_pending_updates_still_apply(dup_tracker):
     assert len(written) == 2 and missing == []
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Awaiting reply", "Interview"]
     assert not pending.exists()
+
+
+# ---------- milestone 8: find.py asks Outcome, then Stage ----------
+
+def test_in_progress_requires_a_stage_when_the_row_has_none(dup_tracker):
+    ws = known_sheet()
+    script = Script("1", "2", "", "x", "2", "", "y", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[1:7] == [find.OUTCOME_PROMPT] + [find.STAGE_REQUIRED_PROMPT] * 3 + \
+        [find.NOTE_PROMPT, "Update 1 row: In progress · Initial Screening? [y/N] "]
+    assert at(ws, 2, "Outcome", "Stage", "Last Updated") == ["In progress", "Initial Screening", "2026-10-21"]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["In progress", "Initial Screening"]
+
+
+def test_in_progress_keeps_the_stage_when_every_row_has_one(dup_tracker):
+    ws = known_sheet()
+    ws.values[1] += ["Interview"]
+    script = Script("1", "2", "", "", "y", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[2] == find.STAGE_PROMPT and script.prompts[4] == "Update 1 row: In progress? [y/N] "
+    assert at(ws, 2, "Outcome", "Stage", "Last Updated") == ["In progress", "Interview", ""]
+
+
+def test_in_progress_stage_required_if_any_picked_row_has_none(dup_tracker):
+    ws = known_sheet()
+    ws.values[1] += ["Interview"]  # Example Labs has a Stage, Other Co doesn't
+    script = Script("all", "in progress", "", "online assessment", "", "y", "")
+    assert run_find(dup_tracker, ws, script, text="engineer") == 0
+    assert script.prompts[2:4] == [find.STAGE_REQUIRED_PROMPT] * 2
+    assert script.prompts[5] == "Update 2 rows: In progress · Online Assessment? [y/N] "
+    assert at(ws, 2, "Stage") == at(ws, 3, "Stage") == ["Online Assessment"]
+
+
+def test_enter_at_both_questions_and_no_note_changes_nothing(dup_tracker, capsys):
+    ws = known_sheet()
+    before = dup_tracker.read_bytes()
+    script = Script("1", "", "", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts == [find.ROWS_PROMPT, find.OUTCOME_PROMPT, find.STAGE_PROMPT, find.NOTE_PROMPT,
+                              find.ROWS_PROMPT]
+    assert ws.updates == [] and dup_tracker.read_bytes() == before
+    assert "Nothing to change." in capsys.readouterr().out
+
+
+def test_note_alone_keeps_outcome_stage_and_last_updated(dup_tracker):
+    ws = known_sheet()
+    script = Script("1", "", "", "Recruiter call", "y", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4] == 'Update 1 row: note "Recruiter call"? [y/N] '
+    assert at(ws, 2, "Outcome", "Stage", "Last Updated", "Remarks") == ["Applied", "", "", "10/21/2026 Recruiter call"]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}", f"H{KNOWN_ROW}", f"I{KNOWN_ROW}") == \
+        ["Applied", None, "10/21/2026 Recruiter call"]
+
+
+def test_update_report_names_what_changed(dup_tracker, capsys):
+    assert run_find(dup_tracker, known_sheet(), Script("1", "3", "1", "OA done", "y", "")) == 0
+    out = capsys.readouterr().out
+    assert 'Updated row 2 in the Google Sheet: Example Labs, Inc. - Software Engineer - Python -> ' \
+        'Awaiting reply · Online Assessment · note "OA done"' in out

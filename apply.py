@@ -269,7 +269,7 @@ class Sheet:
 
 def report_updates(where: str, written, missing) -> None:
     for r, u in written:
-        print(f"Updated row {r} in {where}: {u.company} - {u.position} -> {u.outcome}")
+        print(f"Updated row {r} in {where}: {u.company} - {u.position} -> {u.describe()}")
     for u in missing:
         print(f"Not found in {where}, not changed: {u.company} - {u.position}")
 

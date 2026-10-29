@@ -230,6 +230,12 @@ def format_note(day: date, note: str, existing) -> str:
 
 # ---------- Outcome updates (find.py) ----------
 
+def describe_change(outcome: str, stage: str, note: str) -> str:
+    """What an update writes, leaving out what it keeps: 'In progress · Online Assessment · note "OA link"'."""
+    parts = [outcome, stage, f'note "{note.strip()}"' if note.strip() else ""]
+    return " · ".join(p for p in parts if p)
+
+
 @dataclass
 class OutcomeUpdate:
     """A new Outcome (and Stage, and optional note) for one job, found again by its details before
@@ -255,6 +261,9 @@ class OutcomeUpdate:
         if "stage" not in d and d["outcome"] in STAGES:  # saved before Stage had its own column
             d["stage"], d["outcome"] = d["outcome"], AWAITING
         return cls(**d)
+
+    def describe(self) -> str:
+        return describe_change(self.outcome, self.stage, self.note)
 
     def moves_last_updated(self, outcome, stage) -> bool:
         """Last Updated changes only when Stage changes to a different value, or Outcome changes to
