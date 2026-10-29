@@ -263,7 +263,7 @@ lookups, saving the full JD text.
 | E | Date | today as a real date, number format `M/d/yyyy` |
 | F | Outcome | `Applied` (dropdown: Applied, Rejected, Awaiting reply, In progress) |
 | G | Stage | apply.py leaves it empty (blank = no news yet); find.py sets it (dropdown: Online Assessment, Initial Screening, Interview) |
-| H | Last Updated | date of the last status change, `M/d/yyyy`, same date check as E; apply.py writes today (same as Date); old rows blank (milestone 8) |
+| H | Last Updated | date of the last real status change (see "Milestone 8"), `M/d/yyyy`, same date check as E; apply.py writes today (same as Date); old rows blank |
 | I | Remarks | apply.py leaves it empty; find.py appends dated notes (milestone 7) |
 | J, K | Experience, Key Skills | leave empty |
 
@@ -296,11 +296,15 @@ Every row is written to both: the Sheet first, then the local Excel file.
 - Before reading or writing, map row 1's headers to columns (same rules as the Excel file). A
   missing required header is named, and the Sheet is then treated like "can't be reached":
   the run carries on with the Excel file, and rows and updates wait in the pending files.
+  Every run that finds the header wrong prints a clear warning naming the missing header.
+- Text fields (Company, Position, Posted date/ Source, Outcome, Stage, Remarks) are written
+  with `RAW`, so they are stored exactly as given (`SDE 1-2`, `10/20`, `=...` stay text).
+  Only Date, Last Updated and the `=HYPERLINK` URL are written `USER_ENTERED`.
 - Duplicate check reads the Sheet (display text, plus `=HYPERLINK()` targets in the URL column).
   If the Sheet can't be reached, fall back to the Excel file.
 - Write at the first row after the last Company value, each field into its own column by
-  header: URL = `=HYPERLINK(url, url)`, Date and Last Updated = the date as `M/d/yyyy`, entered
-  as if typed, Outcome = `Applied`. Other columns are not touched. Copy format and data
+  header: URL = `=HYPERLINK(url, url)`, Date and Last Updated = the date, entered as if typed
+  and shown as `M/d/yyyy`, Outcome = `Applied`. Other columns are not touched. Copy format and data
   validation from the row above so the Outcome and Stage dropdowns carry on.
 - Before each write, save the Sheet's values to `backups/sheet-YYYYMMDD-HHMMSS.csv`.
 - If the Sheet can't be reached, keep the row in `pending_sheet.json` and write it next run.
@@ -513,8 +517,13 @@ Update 2 rows: In progress · Online Assessment? [y/N]
 
 ### Last Updated
 
-- `find.py` writes today's date to **Last Updated** on each row it writes an Outcome, Stage or
-  Remarks update to (Excel as a real date with `M/d/yyyy`; Sheet as a date value).
+- `find.py` writes today's date to **Last Updated** on a row only when, on that row:
+  - Stage changes to a different value, or
+  - Outcome changes to Awaiting reply or Rejected (from something else).
+
+  A note alone, Outcome changing to Applied or In progress, or picking the value the row
+  already has does not change Last Updated. (Excel as a real date with `M/d/yyyy`; Sheet as a
+  date value.) It is checked against the row as it is when the write happens.
 - `apply.py` writes today's date to Last Updated on the new row (same as Date).
 - Never written for rows I didn't change. Old rows stay blank.
 
@@ -522,7 +531,9 @@ Update 2 rows: In progress · Online Assessment? [y/N]
 
 - Tests: header map (order, case, spaces, missing required header stops before writing);
   append and update write to the right columns in the new layout and in a shuffled layout;
-  Remarks note goes to I and keeps existing text; Last Updated set on update and on append;
+  Remarks note goes to I and keeps existing text; Last Updated set on append, and on update
+  only for a Stage change or a change to Awaiting reply / Rejected (each case tested);
+  Sheet text written RAW and unchanged (`SDE 1-2`, `10/20`, `=`, `+`);
   `In progress` added to dropdowns; Rejected skips the Stage question; In progress requires
   a Stage; Enter keeps; old pending files still apply; Sheet path via the fake worksheet.
 - `pytest` and `ruff check .` pass.
