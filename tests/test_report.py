@@ -513,3 +513,122 @@ def test_footer_and_empty_tracker():
     assert "Generated 10/28/2026 9:05 AM from tracker.xlsx · 0 rows" in html
     assert "Data check (0)" in html
 
+
+# ---------- report.py ----------
+
+def dt(month, day):
+    return datetime(2026, month, day)
+
+
+PLANTED = [
+    {"Company": "Beta", "Position": "Backend Engineer I", "Posted date/ Source": "Posted today-Jobright",
+     "Date": dt(10, 20), "Outcome": "In progress", "Stage": "Online Assessment", "Last Updated": dt(10, 27)},
+    {"Company": "Gamma", "Position": "Data Engineer", "Posted date/ Source": "Sameday- Tsenta",
+     "Date": dt(10, 26), "Outcome": "In progress", "Stage": "Interview"},
+    {"Company": "Delta", "Position": "SRE", "Posted date/ Source": "Posted October 1, 2026-LinkedIn",
+     "Date": dt(9, 1), "Outcome": "Awaiting reply", "Stage": "Interview", "Last Updated": dt(10, 1)},
+    {"Company": "Epsilon", "Position": "Cloud Engineer", "Posted date/ Source": "Posted today-Jobright",
+     "Date": dt(9, 2), "Outcome": "Awaiting reply", "Stage": "Initial Screening"},
+    {"Company": "Eta", "Position": "Software Engineer", "Posted date/ Source": "Posted today-Tsenta",
+     "Date": dt(8, 3), "Outcome": "Rejected", "Stage": "Interview", "Last Updated": dt(9, 10),
+     "Remarks": "09/10/2026 no sponsorship"},
+    *[{"Company": "Acme" if day == 27 else "Acme Inc", "Position": f"Engineer {day}",
+       "Posted date/ Source": "Posted today-LinkedIn", "Date": dt(10, day), "Outcome": "Applied"}
+      for day in (1, 5, 8, 12, 15, 27)],
+    {"Company": "Kappa", "Position": "Platform Engineer", "URL": '=HYPERLINK("https://jobs.lever.co/kappa/1", "apply")',
+     "Posted date/ Source": "Posted today-Jobright", "Date": dt(10, 2), "Outcome": "Applied"},
+    {"Company": "Iota", "Position": None, "Posted date/ Source": "Posted today-Jobright", "Date": dt(10, 3),
+     "Outcome": "Applied"},
+]
+
+
+@pytest.fixture
+def report_env(tmp_path, monkeypatch):
+    """report.py with the default settings, its page in tmp_path and the browser recorded, not opened."""
+    import report
+
+    opened = []
+    monkeypatch.setattr(report, "DEFAULT_SETTINGS", tmp_path / "no-report.yaml")
+    monkeypatch.setattr(report, "DEFAULT_OUT", tmp_path / "report.html")
+    monkeypatch.setattr(report.webbrowser, "open", opened.append)
+    return report, tmp_path / "report.html", opened
+
+
+def test_report_end_to_end(tracker_file, report_env):
+    report, out, opened = report_env
+    plant(tracker_file, PLANTED)
+    before = _fingerprint(tracker_file)
+    assert report.main(["--tracker", str(tracker_file), "--no-open", "--today", "2026-10-28"]) == 0
+    assert _fingerprint(tracker_file) == before  # never written
+    assert opened == []
+    html = out.read_text(encoding="utf-8")
+    for text in [
+        "This week: 2 applications (target 25, last week 1). 1 new response: Beta (Online Assessment).",
+        "2 in progress and 2 awaiting reply.",
+        "Beta: Online Assessment to do since 1 day",
+        "Gamma: Interview to do",
+        "Delta: Interview, no reply for 27 days",
+        "Epsilon: Initial Screening, waiting (date unknown)",
+        "Acme: 6 applications, no response",
+        "Your responses (5)",
+        "URL stored as a formula (1)",
+        "Blank Position (1)",
+        "Data check (2)",
+        "from tracker.xlsx · 896 rows",
+    ]:
+        assert text in html, text
+    assert "+1 more" not in html and "<script" not in html
+    assert '<a href="https://example.com/jobs/4" target="_blank" rel="noopener noreferrer">example.com</a>' in html
+
+
+def test_report_opens_the_page(tracker_file, report_env):
+    report, out, opened = report_env
+    assert report.main(["--tracker", str(tracker_file), "--today", "2026-10-28"]) == 0
+    assert opened == [out.resolve().as_uri()]
+
+
+def test_report_from_the_sheet(report_env):
+    report, out, _ = report_env
+    ws = FakeWorksheet([
+        HEADER,
+        ["Acme", "SWE", "apply", "Posted today-Tsenta", "10/27/2026", "Awaiting reply", "Interview", "10/27/2026",
+         "", "", ""],
+        ["Zen", "SDE", "https://jobs.lever.co/zen/1", "LinkedIn", "10/1/2026", "Applied", "", "", "", "", ""],
+    ], formulas={2: '=HYPERLINK("https://jobs.ashbyhq.com/acme/1", "apply")'})
+    assert report.main(["--sheet", "--no-open", "--today", "2026-10-28"], sheet_ws=ws) == 0
+    html = out.read_text(encoding="utf-8")
+    assert "from the Google Sheet · 2 rows" in html
+    assert "1 new response: Acme (Interview)." in html
+    assert '<a href="https://jobs.ashbyhq.com/acme/1"' in html
+    assert "URL stored as a formula" not in html
+    assert ws.updates == []
+
+
+def test_report_sheet_not_configured(report_env, capsys):
+    report, out, _ = report_env
+    assert report.main(["--sheet", "--no-open"]) == 2
+    assert "sheet_id" in capsys.readouterr().out and not out.exists()
+
+
+def test_report_missing_tracker(tmp_path, report_env, capsys):
+    report, out, _ = report_env
+    assert report.main(["--tracker", str(tmp_path / "nope.xlsx"), "--no-open"]) == 2
+    assert "Tracker not found" in capsys.readouterr().out and not out.exists()
+
+
+def test_report_missing_header(tracker_file, report_env, capsys):
+    report, out, _ = report_env
+    wb = load_workbook(tracker_file)
+    wb["Sheet1"]["G1"] = "Stg"
+    wb.save(tracker_file)
+    assert report.main(["--tracker", str(tracker_file), "--no-open"]) == 2
+    assert "Stage" in capsys.readouterr().out and not out.exists()
+
+
+def test_report_out_must_be_html(tracker_file, report_env, capsys):
+    report, _, _ = report_env
+    before = _fingerprint(tracker_file)
+    assert report.main(["--tracker", str(tracker_file), "--out", str(tracker_file), "--no-open"]) == 2
+    assert ".html" in capsys.readouterr().out
+    assert _fingerprint(tracker_file) == before
+
