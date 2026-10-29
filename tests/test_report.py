@@ -1,5 +1,6 @@
 """Milestone 9: report.py, a read-only page of the tracker, on the fake tracker and a fake worksheet."""
 import hashlib
+import re
 from datetime import date, datetime
 
 import pytest
@@ -7,7 +8,7 @@ from openpyxl import load_workbook
 
 from fake_sheet import HEADER, FakeWorksheet
 from fake_tracker import SHUFFLED, make_tracker
-from reporting import derive, load, metrics
+from reporting import derive, load, metrics, render
 from reporting.load import Job, Settings
 
 TODAY = date(2026, 10, 28)  # a Wednesday: this week is Oct 26-28, last week Oct 19-25
@@ -441,3 +442,74 @@ def test_data_check():
     ]
     assert "URL stored as a formula" not in dict(metrics.data_check(rows, S, excel=False))
     assert metrics.data_check([F()], S, excel=True) == []
+
+
+# ---------- render ----------
+
+HEADINGS = ["Summary", "This week", "Needs your attention", "Weekly", "Monthly", "Your responses (",
+            "Top 10 companies, with outcomes", "No reply after 30 days", "More details", "Data check ("]
+GENERATED = datetime(2026, 10, 28, 9, 5)
+
+
+def page(rows, excel=True):
+    return render.page(rows, S, TODAY, excel=excel, source_name="tracker.xlsx", generated=GENERATED)
+
+
+def test_sections_in_order():
+    html = page(ATTENTION_ROWS + WEEK_ROWS)
+    headings = re.findall(r"<h2[^>]*>(.*?)</h2>", html)
+    assert len(headings) == len(HEADINGS)
+    for heading, start in zip(headings, HEADINGS):
+        assert heading.startswith(start), (heading, start)
+    assert "Your responses (11)" in headings[5]
+
+
+def test_tracker_text_is_escaped():
+    html = page([F(company="<script>alert(1)</script>", position="A & B", stage="Interview", outcome="In progress",
+                   remarks="<b>x</b>")])
+    assert "<script>alert" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "A &amp; B" in html
+
+
+def test_no_external_requests():
+    html = page(ATTENTION_ROWS + WEEK_ROWS + [F(company="Bad", url="javascript:alert(1)", stage="Interview")])
+    for banned in ("<script", "<link", "@import", "url(", "javascript:"):
+        assert banned not in html.lower(), banned
+    links = re.findall(r'<a href="([^"]*)"[^>]*>', html)
+    assert links and all(u.startswith("https://") for u in links)
+    assert all('target="_blank"' in a and 'rel="noopener noreferrer"' in a for a in re.findall(r"<a [^>]*>", html))
+    without_links = re.sub(r'<a href="[^"]*"', "", html)
+    assert "http" not in without_links
+
+
+def test_job_link_shows_the_domain():
+    html = page([F(url="https://www.jobs.lever.co/acme/1", stage="Interview", outcome="Awaiting reply")])
+    assert re.search(r'<a href="https://www.jobs.lever.co/acme/1"[^>]*>jobs.lever.co</a>', html)
+
+
+def test_attention_card_cap_and_empty():
+    html = page(ATTENTION_ROWS)
+    assert "Acme: 5 applications, no response" in html and "+2 more" in html
+    assert "Nothing needs your attention." in page([F()])
+
+
+def test_this_week_card_and_summary():
+    html = page(WEEK_ROWS)
+    assert "This week: 3 applications (target 25, last week 2). 1 new response: Delta (Interview)." in html
+    assert "3 · ↑ 1 from last week" in html
+
+
+def test_weekly_chart():
+    html = page(WEEK_ROWS)
+    assert html.count("<rect") >= 12
+    assert "<title>Week of Oct 26: 3 applications, 0 responses</title>" in html
+    assert 'stroke-dasharray' in html  # the target line
+    assert "Oct 26" in html
+
+
+def test_footer_and_empty_tracker():
+    html = page([])
+    assert "Generated 10/28/2026 9:05 AM from tracker.xlsx · 0 rows" in html
+    assert "Data check (0)" in html
+
