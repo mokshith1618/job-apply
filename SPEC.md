@@ -18,7 +18,7 @@ to my Excel tracker.
 ```
 python apply.py [<job-url>] [--source LinkedIn|Tsenta|Other]   # any case; near-misses fixed; other names kept as typed
 python apply.py [<job-url>] --check      # print the job facts card and exit
-python find.py <text>                  # search the tracker, change Outcome / Stage (milestone 7)
+python find.py <text>                  # search the tracker, change Outcome / Stage (milestones 7, 8)
 ```
 
 No link on the command line: it asks `Job link: ` and I paste it (no quotes needed for `&` in
@@ -251,45 +251,60 @@ lookups, saving the full JD text.
 
 ## Tracker format (`Job Application Tracker.xlsx`)
 
-- Sheet `Sheet1`, Excel table `Table1` (currently `A1:J1000`), header on row 1.
-- Append at the first row after the last row that has a Company value (currently row 898).
+- Sheet `Sheet1`, Excel table `Table1` (currently `A1:K1000`), header on row 1.
+- Append at the first row after the last row that has a Company value.
 
 | Col | Header | Write |
 |---|---|---|
 | A | Company | company name |
 | B | Position | job title |
-| C | URL | the URL as text **and** as a hyperlink |
+| C | URL | the URL as text **and** as a hyperlink (some old rows hold an `=HYPERLINK("url","text")` formula) |
 | D | Posted date/ Source | e.g. `Posted today-Tsenta`, `Posted October 8, 2026-LinkedIn` (match existing style) |
 | E | Date | today as a real date, number format `M/d/yyyy` |
-| F | Outcome | `Applied` (dropdown: Applied, Rejected, Awaiting reply) |
+| F | Outcome | `Applied` (dropdown: Applied, Rejected, Awaiting reply, In progress) |
 | G | Stage | apply.py leaves it empty (blank = no news yet); find.py sets it (dropdown: Online Assessment, Initial Screening, Interview) |
-| H | Remarks | apply.py leaves it empty; find.py appends dated notes (milestone 7) |
-| I, J | Experience, Key Skills | leave empty |
+| H | Last Updated | date of the last real status change (see "Milestone 8"), `M/d/yyyy`, same date check as E; apply.py writes today (same as Date); old rows blank |
+| I | Remarks | apply.py leaves it empty; find.py appends dated notes (milestone 7) |
+| J, K | Experience, Key Skills | leave empty |
 
-- Every Excel write makes sure the column F list validation offers the three Outcome values
-  and the column G list validation the three Stage values (missing ones are added; nothing
+- **Columns are found by header name, never by letter** (milestone 8). Row 1 is read and each
+  header mapped to its column, ignoring case and spaces, for both Excel and the Sheet.
+  Required headers: Company, Position, URL, Posted date/ Source, Date, Outcome, Stage,
+  Last Updated, Remarks. Experience and Key Skills are optional. A missing required header in
+  the Excel file stops apply.py and find.py at the start, with a message naming it, before
+  any write.
+- Every Excel write makes sure the Outcome column's list validation offers the four Outcome
+  values and the Stage column's the three Stage values (missing ones are added; nothing
   is removed).
 
 - When the table reaches its last row, extend `Table1` and the data validation ranges
-  on columns E, F and G so new rows keep the date check and the Outcome and Stage dropdowns.
+  on the Date, Last Updated, Outcome and Stage columns so new rows keep the date checks and
+  the Outcome and Stage dropdowns.
 - Before each write, copy the tracker to `backups/tracker-YYYYMMDD-HHMMSS.xlsx`.
 - If the file is open in Excel (PermissionError on Windows), keep the row in
   `pending_rows.json`, tell me to close Excel, and retry. Nothing is lost.
 
 ## Google Sheet tracker
 
-The main tracker is a native Google Sheet with the same columns A..J as the Excel file.
+The main tracker is a native Google Sheet with the same columns A..K as the Excel file.
 Every row is written to both: the Sheet first, then the local Excel file.
 
 - Config in `config.yaml` (gitignored): `sheet_id`, `sheet_tab`, `google_key`, `local_tracker`.
   No `config.yaml` or no `sheet_id` = Excel only. `--no-sheet` also means Excel only.
 - Access through a Google Cloud **service account** (`google-key.json`, gitignored). The Sheet
   is shared with the service account email as Editor.
-- Before writing, check that row 1 starts with the A..G headers (Company .. Stage); if not, write nothing.
-- Duplicate check reads the Sheet (display text, plus `=HYPERLINK()` targets in column C).
+- Before reading or writing, map row 1's headers to columns (same rules as the Excel file). A
+  missing required header is named, and the Sheet is then treated like "can't be reached":
+  the run carries on with the Excel file, and rows and updates wait in the pending files.
+  Every run that finds the header wrong prints a clear warning naming the missing header.
+- Text fields (Company, Position, Posted date/ Source, Outcome, Stage, Remarks) are written
+  with `RAW`, so they are stored exactly as given (`SDE 1-2`, `10/20`, `=...` stay text).
+  Only Date, Last Updated and the `=HYPERLINK` URL are written `USER_ENTERED`.
+- Duplicate check reads the Sheet (display text, plus `=HYPERLINK()` targets in the URL column).
   If the Sheet can't be reached, fall back to the Excel file.
-- Write at the first row after the last Company value. C = `=HYPERLINK(url, url)`,
-  E = the date as `M/d/yyyy`, entered as if typed, F = `Applied`. Copy format and data
+- Write at the first row after the last Company value, each field into its own column by
+  header: URL = `=HYPERLINK(url, url)`, Date and Last Updated = the date, entered as if typed
+  and shown as `M/d/yyyy`, Outcome = `Applied`. Other columns are not touched. Copy format and data
   validation from the row above so the Outcome and Stage dropdowns carry on.
 - Before each write, save the Sheet's values to `backups/sheet-YYYYMMDD-HHMMSS.csv`.
 - If the Sheet can't be reached, keep the row in `pending_sheet.json` and write it next run.
@@ -349,6 +364,10 @@ Every row is written to both: the Sheet first, then the local Excel file.
    for the rest I use Claude in Chrome by hand.
 6. **Email:** parked.
 7. **Search and update status** (`find.py`). See "Milestone 7" below.
+8. **Tracker layout and status model:** columns by header name, Last Updated, In progress,
+   two questions in find.py. See "Milestone 8" below. (Done 2026-10-28; real run checked by me.)
+9. **Report page** (`report.py`): a read-only page of the tracker. Drafted in `SPEC-report.md`;
+   merged here when it is built.
 
 ## Milestone 7: Search by company and update status
 
@@ -405,6 +424,9 @@ date, rows inside a group newest first; a date that can't be read goes last.
 
 ### Changing status
 
+(Milestone 8 replaced the single status menu with two questions, Outcome then Stage, and
+the rule that a Stage sets Awaiting reply. See "Milestone 8". The rest of this section still holds.)
+
 After the table:
 ```
 Rows to update (e.g. 1,2 or 1-3 or all; Enter = done):
@@ -448,6 +470,76 @@ Update 2 rows to Rejected? [y/N]
   pending file when Excel is locked; Sheet update via the fake worksheet.
 - `ruff check .` and `pytest` pass.
 - One real run (by me): search a company, update a row, see it in the Sheet and Excel.
+
+## Milestone 8: Tracker layout and status model
+
+The tracker layout changed by hand (Excel and Sheet in sync): **Last Updated** was inserted at H,
+so Remarks, Experience and Key Skills moved to I, J and K (see "Tracker format"). The app finds
+every column by its header name (see there), so a moved column can't receive the wrong data.
+
+### Status model
+
+Outcome = whose turn it is. Stage = furthest step reached.
+
+| Stage | Outcome | Meaning |
+|---|---|---|
+| blank | Applied | applied, no news yet |
+| a stage | **In progress** | that stage is on me (assessment to do, interview coming) |
+| a stage | Awaiting reply | I've done that stage, waiting on them |
+| any | Rejected | done; Stage kept to show how far it got |
+
+- Outcomes: Applied, Rejected, Awaiting reply, In progress. `In progress` is added to the
+  Outcome dropdowns if missing (Excel and Sheet).
+- No rule "a Stage sets Outcome to Awaiting reply" any more.
+- Pending files saved by the old version (a stage with no Stage field, or an explicit
+  Awaiting reply + stage) are still read the old way, so nothing pending is lost.
+
+### find.py: two questions
+
+After picking rows:
+```
+Outcome: 1 Applied  2 In progress  3 Awaiting reply  4 Rejected  (Enter = keep)
+Stage:   1 Online Assessment  2 Initial Screening  3 Interview  (Enter = keep)
+Note for Remarks (optional):
+Update 2 rows: In progress · Online Assessment? [y/N]
+```
+- Number or name, any case; invalid input asks again.
+- **Rejected:** the Stage question is not asked; Stage stays as it is.
+- **In progress:** a Stage is required if the row has none (the Stage question has no
+  `Enter = keep` then, and Enter asks again). With several rows picked, required if any of
+  them has no Stage.
+- **Applied / Awaiting reply:** Stage question asked; Enter keeps each row's own Stage.
+- Enter at both questions and no note = nothing to change, back to the row prompt.
+- The confirm line names exactly what will be written: the Outcome, the Stage and
+  `note "..."`, joined by ` · `, leaving out what is kept.
+- Table: **Last Updated** after Stage. Outcome styles: In progress bold, Rejected dim.
+- Everything else from milestone 7 stays (finding rows again, pending files, re-print).
+
+### Last Updated
+
+- `find.py` writes today's date to **Last Updated** on a row only when, on that row:
+  - Stage changes to a different value, or
+  - Outcome changes to Awaiting reply or Rejected (from something else).
+
+  A note alone, Outcome changing to Applied or In progress, or picking the value the row
+  already has does not change Last Updated. (Excel as a real date with `M/d/yyyy`; Sheet as a
+  date value.) It is checked against the row as it is when the write happens.
+- `apply.py` writes today's date to Last Updated on the new row (same as Date).
+- Never written for rows I didn't change. Old rows stay blank.
+
+### Done when
+
+- Tests: header map (order, case, spaces, missing required header stops before writing);
+  append and update write to the right columns in the new layout and in a shuffled layout;
+  Remarks note goes to I and keeps existing text; Last Updated set on append, and on update
+  only for a Stage change or a change to Awaiting reply / Rejected (each case tested);
+  Sheet text written RAW and unchanged (`SDE 1-2`, `10/20`, `=`, `+`);
+  `In progress` added to dropdowns; Rejected skips the Stage question; In progress requires
+  a Stage; Enter keeps; old pending files still apply; Sheet path via the fake worksheet.
+- `pytest` and `ruff check .` pass.
+- One real run (by me) on my tracker: `find.py` on one company, set In progress + Online
+  Assessment with a note, then check Excel and the Sheet: F, G, H (today) and I (note) are right.
+- README and SPEC.md tracker format updated to the new layout and model.
 
 ## Out of scope
 

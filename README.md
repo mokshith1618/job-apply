@@ -82,9 +82,19 @@ pip install -r requirements.txt
 
 Both trackers use the same columns, with the header in row 1:
 
-| A | B | C | D | E | F | G | H | I |
-|---|---|---|---|---|---|---|---|---|
-| Company | Position | URL | Posted date/ Source | Date | Outcome | Remarks | Experience | Key Skills |
+| A | B | C | D | E | F | G | H | I | J | K |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Company | Position | URL | Posted date/ Source | Date | Outcome | Stage | Last Updated | Remarks | Experience | Key Skills |
+
+The tool finds each column by its header name, not its letter, so the order can change.
+Experience and Key Skills are optional; every other header must be there. If one is missing
+from the Excel file, `apply.py` and `find.py` name it and stop before writing anything.
+
+- **Outcome** is whose turn it is: Applied (no news yet), In progress (the next step is on
+  you), Awaiting reply (you did the step, waiting on them), Rejected.
+- **Stage** is the furthest step reached: Online Assessment, Initial Screening, Interview.
+- **Last Updated** is the date of the last real status change: a new Stage, or Outcome
+  becoming Awaiting reply or Rejected. A new row gets the day you applied.
 
 The Excel file (`Job Application Tracker.xlsx`) keeps the data in sheet `Sheet1` as an
 Excel table named `Table1`. See [SPEC.md](SPEC.md) for the full format.
@@ -109,7 +119,10 @@ Without this step the tool writes to the Excel file only.
    ```
 
 Before writing, the tool checks that row 1 of the Sheet has the tracker headers, so it
-won't write into the wrong sheet.
+won't write into the wrong sheet. If one is missing, every run prints a warning naming it,
+writes to the Excel file only, and keeps the Sheet's rows and updates in `pending_sheet.json`
+/ `pending_sheet_updates.json` until the header is fixed. Text goes into the Sheet exactly as
+given (`SDE 1-2` stays text, not a date); only dates and the link are entered as if typed.
 
 ## Usage
 
@@ -122,7 +135,7 @@ Leave the link out and it asks `Job link: `: paste it with Ctrl+V and press Ente
 
 | Option | Meaning |
 |---|---|
-| `--source` | where you found the job; goes into column D and answers "How did you hear about us?". Any case works (`linkedin` → `LinkedIn`), a near-miss like `Linkdin` is fixed, and any other name (`Indeed`) is kept as typed |
+| `--source` | where you found the job; goes into Posted date/ Source and answers "How did you hear about us?". Any case works (`linkedin` → `LinkedIn`), a near-miss like `Linkdin` is fixed, and any other name (`Indeed`) is kept as typed |
 | `--tracker` | a different local Excel file |
 | `--no-sheet` | skip the Google Sheet for this run |
 | `--no-fill` | don't open or fill the form |
@@ -130,6 +143,28 @@ Leave the link out and it asks `Job link: `: paste it with Ctrl+V and press Ente
 | `--matching` | a different keyword file (default `matching.yaml`) |
 | `--profile`, `--answers` | different `profile.yaml` / `answers.yaml` files |
 | `--config` | a different config file (default `config.yaml`) |
+
+## Updating a job's status (`find.py`)
+
+```
+python find.py <text> [--tracker PATH] [--no-sheet]
+```
+
+Finds every job whose company, position or link contains `<text>` (`python find.py acme`;
+use quotes for `"s&p global"`), shows them in a table, then asks:
+
+```
+Rows to update (e.g. 1,2 or 1-3 or all; Enter = done):
+Outcome: 1 Applied  2 In progress  3 Awaiting reply  4 Rejected  (Enter = keep)
+Stage:   1 Online Assessment  2 Initial Screening  3 Interview  (Enter = keep)
+Note for Remarks (optional):
+Update 1 row: In progress · Online Assessment? [y/N]
+```
+
+Rejected skips the Stage question (the Stage stays, to show how far it got). In progress
+needs a Stage, so Enter doesn't keep it when a picked row has none. A note is added to
+Remarks with today's date, after what's already there. Writes go to the Google Sheet, then
+the Excel file, with a backup first, like `apply.py`.
 
 ## Job facts card
 
@@ -181,6 +216,7 @@ page changed), it says so and you fill the form by hand. The tracker step still 
 | Path | Purpose |
 |---|---|
 | `apply.py` | entry point |
+| `find.py` | search the tracker and update Outcome / Stage / Remarks |
 | `job_facts.py` | the job facts card |
 | `matching.yaml` | keyword lists for the card |
 | `tracker.py` | Excel tracker: duplicate check, row writing, backups, pending rows |
@@ -208,12 +244,10 @@ These stay on your machine and are listed in `.gitignore`:
 pytest
 ```
 
-The tests run on a temporary copy of `tracker_copy.xlsx` and never touch the real tracker.
-The Google Sheet tests use a fake worksheet and make no network calls. `tracker_copy.xlsx`
-is personal data, so it isn't in this repo. To run the tests, put a copy of your own
-tracker in that format at the repo root. A few tests expect the next empty row to be 898,
-so you may need to adjust `EXPECTED_ROW` in `tests/test_tracker.py`. The real-Excel test
-is skipped if Excel or pywin32 isn't installed.
+The tests build a made-up tracker in a temporary folder (`tests/fake_tracker.py`), in the
+layout above and in a shuffled column order. They never open `tracker_copy.xlsx` or the
+real tracker. The Google Sheet tests use a fake worksheet and make no network calls. The
+real-Excel test is skipped if Excel or pywin32 isn't installed.
 
 ## Status
 
@@ -225,3 +259,6 @@ is skipped if Excel or pywin32 isn't installed.
 | 3. Ashby, then Lever | planned |
 | 4. Workday | planned |
 | 5. Other sites | planned |
+| 7. Search and update status (`find.py`) | done |
+| 8. Tracker layout and status model | done |
+| 9. Report page | planned |

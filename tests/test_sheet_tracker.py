@@ -25,7 +25,7 @@ def sample_sheet(**kwargs):
         ["Example Labs", "Software Engineer - Python", "https://jobs.ashbyhq.com/examplelabs/1234abcd",
          "Posted today-Tsenta", "6/20/2026", "Applied"],
         ["Linked Co", "Backend Engineer", "click here", "Posted today-LinkedIn", "7/1/2026", "Rejected"],
-        ["", "", "", "", "", "", "a remark with no company"],
+        ["", "", "", "", "", "", "", "", "a remark with no company"],
     ], formulas={3: f'=HYPERLINK("{LINKED_URL}", "click here")'}, **kwargs)
 
 
@@ -40,11 +40,11 @@ def new_row(**overrides):
 def test_row_goes_after_last_company_with_typed_values(tmp_path):
     ws = sample_sheet()
     assert sheet_tracker.append_row(ws, new_row(), tmp_path / "backups") == 4
-    assert ws.updates == [("A4:F4", [[
-        "Acme Robotics", "Software Engineer I",
-        f'=HYPERLINK("{NEW_URL}", "{NEW_URL}")',
-        "Posted October 8, 2026-LinkedIn", "2026-10-13", "Applied",
-    ]])]
+    assert dict(ws.updates) == {
+        "A4": "Acme Robotics", "B4": "Software Engineer I", "C4": f'=HYPERLINK("{NEW_URL}", "{NEW_URL}")',
+        "D4": "Posted October 8, 2026-LinkedIn", "E4": "2026-10-13", "F4": "Applied", "H4": "2026-10-13",
+    }
+    assert {c for c, o in ws.input_options.items() if o == "USER_ENTERED"} == {"C4", "E4", "H4"}
 
 
 def test_format_and_dropdown_copied_from_row_above_and_date_format_set(tmp_path):
@@ -54,17 +54,20 @@ def test_format_and_dropdown_copied_from_row_above_and_date_format_set(tmp_path)
     assert [c["pasteType"] for c in copies] == ["PASTE_FORMAT", "PASTE_DATA_VALIDATION"]
     for c in copies:
         assert (c["source"]["sheetId"], c["source"]["startRowIndex"], c["destination"]["startRowIndex"]) == (7, 2, 3)
-        assert c["destination"]["endColumnIndex"] == 10
-    cell = ws.spreadsheet.requests[-1]["repeatCell"]
-    assert cell["range"]["startRowIndex"] == 3 and cell["range"]["startColumnIndex"] == 4
-    assert cell["cell"]["userEnteredFormat"]["numberFormat"] == {"type": "DATE", "pattern": "M/d/yyyy"}
+        assert c["destination"]["endColumnIndex"] == 11
+    cells = [q["repeatCell"] for q in ws.spreadsheet.requests if "repeatCell" in q]
+    assert [(c["range"]["startRowIndex"], c["range"]["startColumnIndex"]) for c in cells] == [(3, 4), (3, 7)]  # E, H
+    for cell in cells:
+        assert cell["cell"]["userEnteredFormat"]["numberFormat"] == {"type": "DATE", "pattern": "M/d/yyyy"}
 
 
-def test_quotes_escaped_and_formula_text_kept_as_text():
-    values = sheet_tracker.row_values(new_row(company="=IMPORTXML(1)", position="+Lead",
-                                              url='https://x.com/a"b'))
-    assert values[0] == "'=IMPORTXML(1)" and values[1] == "'+Lead"
-    assert values[2] == '=HYPERLINK("https://x.com/a""b", "https://x.com/a""b")'
+def test_text_is_written_raw_and_unchanged(tmp_path):
+    ws = sample_sheet()
+    sheet_tracker.append_row(ws, new_row(company="=IMPORTXML(1)", position="SDE 1-2", posted="+Lead 10/20",
+                                         url='https://x.com/a"b'), tmp_path)
+    assert ws.values[3][:4] == ["=IMPORTXML(1)", "SDE 1-2", 'https://x.com/a"b', "+Lead 10/20"]
+    assert [ws.input_options[c] for c in ("A4", "B4", "D4", "F4")] == ["RAW"] * 4
+    assert ws.formulas[4] == '=HYPERLINK("https://x.com/a""b", "https://x.com/a""b")'
 
 
 def test_wrong_header_writes_nothing(tmp_path):
@@ -75,8 +78,24 @@ def test_wrong_header_writes_nothing(tmp_path):
     assert not (tmp_path / "backups").exists()
 
 
-def test_header_match_ignores_case_and_spaces():
-    sheet_tracker.check_header([["company", "Position ", "URL", "Posted date /Source", "Date", "Outcome", " stage"]])
+def test_missing_sheet_header_is_named(tmp_path):
+    ws = FakeWorksheet([[h for h in HEADER if h != "Last Updated"]])
+    with pytest.raises(SheetMismatch, match="Last Updated"):
+        sheet_tracker.append_row(ws, new_row(), tmp_path / "backups")
+    assert ws.updates == [] and not (tmp_path / "backups").exists()
+
+
+def test_shuffled_sheet_columns_append_and_read(tmp_path):
+    order = ["Remarks", "Outcome", "URL", "Company", "Last Updated", "Date", "Stage", "Position",
+             "Posted date/ Source"]
+    ws = FakeWorksheet([order, ["", "Applied", "https://x.com/1", "Old Co", "", "6/20/2026", "", "SWE", "LinkedIn"]])
+    assert sheet_tracker.append_row(ws, new_row(), tmp_path) == 3
+    assert dict(ws.updates) == {"D3": "Acme Robotics", "H3": "Software Engineer I",
+                                "C3": f'=HYPERLINK("{NEW_URL}", "{NEW_URL}")', "I3": "Posted October 8, 2026-LinkedIn",
+                                "F3": "2026-10-13", "B3": "Applied", "E3": "2026-10-13"}
+    rows = sheet_tracker.read_rows(ws)
+    assert [(r, v["Company"], v["Position"], urls) for r, v, urls in rows] == [
+        (2, "Old Co", "SWE", ["https://x.com/1"]), (3, "Acme Robotics", "Software Engineer I", [NEW_URL, NEW_URL])]
 
 
 def test_backup_csv_holds_values_before_the_write(tmp_path):
@@ -104,7 +123,7 @@ def test_duplicates_by_url_hyperlink_target_and_company_position():
     ws = sample_sheet()
     hits = sheet_tracker.find_duplicates(ws, url="https://www.jobs.ashbyhq.com/examplelabs/1234abcd/?utm_source=x")
     assert [r for r, _ in hits] == [2]
-    assert hits[0][1][0] == "Example Labs" and len(hits[0][1]) == 7
+    assert hits[0][1]["Company"] == "Example Labs"
     assert [r for r, _ in sheet_tracker.find_duplicates(ws, url=LINKED_URL + "/apply")] == [3]
     assert [r for r, _ in sheet_tracker.find_duplicates(ws, company="linked co", position="BACKEND  engineer")] == [3]
     assert sheet_tracker.find_duplicates(ws, url=NEW_URL, company="Acme", position="SWE") == []
@@ -179,19 +198,19 @@ def test_skip_writes_nowhere(tracker_file):
 
 def test_sheet_down_at_write_keeps_row_pending_then_flushes(tracker_file, capsys):
     ws = sample_sheet()
-    real_update = ws.update
+    real_update = ws.batch_update
 
     def offline(*args, **kwargs):
         raise requests.exceptions.ConnectionError("offline")
 
-    ws.update = offline
+    ws.batch_update = offline
     assert run(tracker_file, ws, Script("")) == 0
     pending = tracker_file.parent / "pending_sheet.json"
     assert [r.company for r in tracker.load_pending(pending)] == ["Acme Robotics"]
     assert excel(tracker_file, "A898") == "Acme Robotics"  # Excel still written
     assert "pending_sheet.json" in capsys.readouterr().out
 
-    ws.update = real_update  # back online
+    ws.batch_update = real_update  # back online
     assert run(tracker_file, ws, Script("s"), url=NEW_URL + "9") == 0
     assert "pending_sheet.json: Acme Robotics" in capsys.readouterr().out  # same company + position, still waiting
     assert ws.values[3][0] == "" and pending.exists()  # skipped: nothing flushed
@@ -253,3 +272,25 @@ def test_sheet_without_stage_column_writes_nothing(tmp_path):
     with pytest.raises(SheetMismatch):
         sheet_tracker.append_row(ws, new_row(), tmp_path / "backups")
     assert ws.updates == [] and not (tmp_path / "backups").exists()
+
+
+def test_excel_missing_header_stops_apply_before_any_write(tracker_file, capsys):
+    wb = load_workbook(tracker_file)
+    wb["Sheet1"]["I1"] = "Notes"  # Remarks
+    wb.save(tracker_file)
+    before = tracker_file.read_bytes()
+    ws = sample_sheet()
+    script = Script()
+    assert run(tracker_file, ws, script) == 2
+    assert script.prompts == [] and ws.updates == [] and tracker_file.read_bytes() == before
+    assert "missing the header Remarks" in capsys.readouterr().out
+
+
+def test_sheet_header_warning_on_every_run(tracker_file, capsys):
+    ws = FakeWorksheet([[h for h in HEADER if h != "Last Updated"]])
+    for script, url in ((Script(""), NEW_URL), (Script("s"), NEW_URL + "9"), (Script(""), NEW_URL + "8")):
+        assert run(tracker_file, ws, script, url=url) == 0
+        out = capsys.readouterr().out
+        assert "Warning: the Google Sheet's row 1 is missing the header Last Updated" in out, out
+    assert ws.updates == []
+    assert len(tracker.load_pending(tracker_file.parent / "pending_sheet.json")) == 2

@@ -1,8 +1,8 @@
 """Excel tracker: duplicate check and row writing.
 
-Layout (see SPEC.md): Sheet1, table Table1, header on row 1, columns
-A Company | B Position | C URL | D Posted date/ Source | E Date | F Outcome | G Stage | H Remarks |
-I-J left empty.
+Layout (see SPEC.md): Sheet1, table Table1, header on row 1. Columns are found by their header
+name (FIELDS, plus the optional ones left empty), never by letter, so a moved column can't
+receive the wrong data. A row's values are a dict keyed by those names.
 """
 from __future__ import annotations
 
@@ -24,12 +24,15 @@ SHEET = "Sheet1"
 TABLE = "Table1"
 DATE_FORMAT = "M/d/yyyy"
 OUTCOME = "Applied"
-OUTCOMES = ("Applied", "Rejected", "Awaiting reply")  # the column F dropdown
-STAGES = ("Online Assessment", "Initial Screening", "Interview")  # the column G dropdown; blank = no news
-AWAITING = "Awaiting reply"  # Outcome whenever a Stage is set
-OUTCOME_COL, STAGE_COL, REMARKS_COL = 6, 7, 8  # F, G, H
-LAST_COL = 10  # A..J
-TABLE_GROWTH = 100  # rows added to Table1 and the E/F/G validations when the table is full
+OUTCOMES = ("Applied", "Rejected", "Awaiting reply", "In progress")  # the Outcome dropdown
+STAGES = ("Online Assessment", "Initial Screening", "Interview")  # the Stage dropdown; blank = no news
+AWAITING = "Awaiting reply"  # the Outcome old pending files imply for a Stage
+DATED_OUTCOMES = (AWAITING, "Rejected")  # changing Outcome to one of these moves Last Updated
+FIELDS = ("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage", "Last Updated",
+          "Remarks")  # required headers
+OPTIONAL = ("Experience", "Key Skills")  # left empty
+DATE_FIELDS = ("Date", "Last Updated")
+TABLE_GROWTH = 100  # rows added to Table1 and its date checks and dropdowns when the table is full
 TRACKING_PARAMS = {"source", "gh_src", "lever-source", "lever-origin",  # plus every utm_*
                    # iCIMS page-display params
                    "mobile", "width", "height", "bga", "needsredirect", "jan1offset", "jun1offset",
@@ -41,18 +44,45 @@ class TrackerLocked(Exception):
     """The tracker file can't be written, almost always because it is open in Excel."""
 
 
+class TrackerLayoutError(Exception):
+    """Row 1 lacks a header the app needs, so nothing is read or written."""
+
+
+def norm_header(value) -> str:
+    return "".join(str(value or "").casefold().split())
+
+
+def column_map(header) -> dict[str, int]:
+    """Header name -> column number (1-based) from row 1's values, ignoring case and spaces.
+    Raises TrackerLayoutError naming every missing required header."""
+    found = {}
+    for col, value in enumerate(header, start=1):
+        found.setdefault(norm_header(value), col)
+    cols = {f: found[norm_header(f)] for f in FIELDS + OPTIONAL if norm_header(f) in found}
+    missing = [f for f in FIELDS if f not in cols]
+    if missing:
+        raise TrackerLayoutError(f"row 1 is missing the header{'s' if len(missing) > 1 else ''} {', '.join(missing)}")
+    return cols
+
+
 @dataclass
 class TrackerRow:
     company: str
     position: str
     url: str
-    posted: str  # column D text, e.g. "Posted today-Tsenta"
+    posted: str  # Posted date/ Source text, e.g. "Posted today-Tsenta"
     applied_on: date
 
     def to_json(self) -> dict:
         d = asdict(self)
         d["applied_on"] = self.applied_on.isoformat()
         return d
+
+    def values(self) -> dict:
+        """The row as it is written, like a row from read_rows()."""
+        return {"Company": self.company, "Position": self.position, "URL": self.url,
+                "Posted date/ Source": self.posted, "Date": self.applied_on, "Outcome": OUTCOME, "Stage": "",
+                "Last Updated": self.applied_on, "Remarks": ""}
 
     @classmethod
     def from_json(cls, d: dict) -> "TrackerRow":
@@ -81,8 +111,8 @@ def _norm_text(value) -> str:
 
 
 def match_rows(rows, url: str | None = None, company: str | None = None,
-               position: str | None = None) -> list[tuple[int, list]]:
-    """Pick duplicates from `rows` = [(row number, A..F values, urls in C)]. -> [(row, A..F values)]
+               position: str | None = None) -> list[tuple[int, dict]]:
+    """Pick duplicates from `rows` = [(row number, values, urls)]. -> [(row, values)]
 
     A row matches if one of its URLs matches `url`, or its company AND position both match.
     """
@@ -91,41 +121,56 @@ def match_rows(rows, url: str | None = None, company: str | None = None,
     hits = []
     for r, values, urls in rows:
         url_hit = want_url is not None and any(normalize_url(u) == want_url for u in urls)
-        pair_hit = want_pair is not None and (_norm_text(values[0]), _norm_text(values[1])) == want_pair
+        pair_hit = want_pair is not None and (_norm_text(values["Company"]),
+                                              _norm_text(values["Position"])) == want_pair
         if url_hit or pair_hit:
             hits.append((r, values))
     return hits
 
 
-def _sheet_rows(ws) -> list[tuple[int, list, list[str]]]:
-    """Job rows of an open worksheet: [(row number, A..H values, urls in C)]. Rows with no
-    Company and no URL (stray remarks) are skipped."""
+def _columns(ws) -> dict[str, int]:
+    return column_map(next(ws.iter_rows(max_row=1, values_only=True), ()))
+
+
+def _sheet_rows(ws, cols: dict[str, int]) -> list[tuple[int, dict, list[str]]]:
+    """Job rows of an open worksheet: [(row number, {field: value}, urls in the URL cell)]. Rows with
+    no Company and no URL (stray remarks) are skipped."""
     rows = []
-    for row in ws.iter_rows(min_row=2, max_col=LAST_COL):
-        a, c = row[0], row[2]
-        if a.value is None and c.value is None:
+    for row in ws.iter_rows(min_row=2, max_col=max(cols.values())):
+        values = {f: row[cols[f] - 1].value for f in FIELDS}
+        if values["Company"] is None and values["URL"] is None:
             continue
-        urls = [str(c.value)] if c.value else []
-        if c.hyperlink is not None and c.hyperlink.target:
-            urls.append(c.hyperlink.target)
-        rows.append((a.row, [cell.value for cell in row[:REMARKS_COL]], urls))
+        link = row[cols["URL"] - 1].hyperlink
+        urls = [str(values["URL"])] if values["URL"] else []
+        if link is not None and link.target:
+            urls.append(link.target)
+        rows.append((row[0].row, values, urls))
     return rows
 
 
-def read_rows(path) -> list[tuple[int, list, list[str]]]:
-    """Every job row of the Excel tracker: [(row number, A..H values, urls in C)]."""
+def check_layout(path) -> None:
+    """Raise TrackerLayoutError if row 1 of the Excel tracker lacks a required header."""
+    wb = load_workbook(path, read_only=True)
+    try:
+        _columns(wb[SHEET])
+    finally:
+        wb.close()
+
+
+def read_rows(path) -> list[tuple[int, dict, list[str]]]:
+    """Every job row of the Excel tracker: [(row number, {field: value}, urls in the URL cell)]."""
     wb = load_workbook(path)  # not read_only: hyperlink targets are needed too
     try:
-        return _sheet_rows(wb[SHEET])
+        ws = wb[SHEET]
+        return _sheet_rows(ws, _columns(ws))
     finally:
         wb.close()
 
 
 def find_duplicates(path, url: str | None = None, company: str | None = None,
-                    position: str | None = None) -> list[tuple[int, list]]:
-    """Rows whose URL matches `url`, or whose company AND position both match. -> [(row, A..G values)]"""
-    rows = [(r, values[:STAGE_COL], urls) for r, values, urls in read_rows(path)]
-    return match_rows(rows, url, company, position)
+                    position: str | None = None) -> list[tuple[int, dict]]:
+    """Rows whose URL matches `url`, or whose company AND position both match. -> [(row, values)]"""
+    return match_rows(read_rows(path), url, company, position)
 
 
 # ---------- search (find.py) ----------
@@ -142,7 +187,7 @@ def search_key(value) -> str:
     return " ".join(words)
 
 
-def search_rows(rows, text: str) -> list[tuple[int, list, list[str]]]:
+def search_rows(rows, text: str) -> list[tuple[int, dict, list[str]]]:
     """Rows from read_rows() where `text` is in the Company, the Position or a URL."""
     key = search_key(text)
     if not key:
@@ -151,7 +196,7 @@ def search_rows(rows, text: str) -> list[tuple[int, list, list[str]]]:
     squeezed = key.replace(" ", "")
     hits = []
     for r, values, urls in rows:
-        in_names = any(key in search_key(v) for v in values[:2])
+        in_names = any(key in search_key(values[f]) for f in ("Company", "Position"))
         in_urls = any(raw in u.casefold() or squeezed in u.casefold() for u in urls)
         if in_names or in_urls:
             hits.append((r, values, urls))
@@ -159,7 +204,7 @@ def search_rows(rows, text: str) -> list[tuple[int, list, list[str]]]:
 
 
 def parse_date(value) -> date | None:
-    """Column E as a date: an Excel date, or Sheet text like '6/20/2026'. Anything else: None."""
+    """A Date cell as a date: an Excel date, or Sheet text like '6/20/2026'. Anything else: None."""
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -185,6 +230,12 @@ def format_note(day: date, note: str, existing) -> str:
 
 # ---------- Outcome updates (find.py) ----------
 
+def describe_change(outcome: str, stage: str, note: str) -> str:
+    """What an update writes, leaving out what it keeps: 'In progress · Online Assessment · note "OA link"'."""
+    parts = [outcome, stage, f'note "{note.strip()}"' if note.strip() else ""]
+    return " · ".join(p for p in parts if p)
+
+
 @dataclass
 class OutcomeUpdate:
     """A new Outcome (and Stage, and optional note) for one job, found again by its details before
@@ -192,9 +243,9 @@ class OutcomeUpdate:
     company: str
     position: str
     urls: list[str]  # link text and hyperlink target as found
-    applied: str  # column E as an ISO date, or "" when it couldn't be read
+    applied: str  # the Date as an ISO date, or "" when it couldn't be read
     row: int  # where the search found it; tried first
-    outcome: str
+    outcome: str  # "" = leave Outcome as it is
     note: str
     noted_on: date
     stage: str = ""  # "" = leave Stage as it is
@@ -211,13 +262,25 @@ class OutcomeUpdate:
             d["stage"], d["outcome"] = d["outcome"], AWAITING
         return cls(**d)
 
+    def describe(self) -> str:
+        return describe_change(self.outcome, self.stage, self.note)
+
+    def moves_last_updated(self, outcome, stage) -> bool:
+        """Last Updated changes only when Stage changes to a different value, or Outcome changes to
+        Awaiting reply or Rejected. `outcome` and `stage` are the row's values before this update."""
+        def text(value):
+            return "" if value is None else str(value).strip()
+        stage_changed = bool(self.stage) and self.stage != text(stage)
+        outcome_dated = self.outcome in DATED_OUTCOMES and self.outcome != text(outcome)
+        return stage_changed or outcome_dated
+
     @classmethod
-    def for_row(cls, r: int, values: list, urls: list[str], outcome: str, note: str,
+    def for_row(cls, r: int, values: dict, urls: list[str], outcome: str, note: str,
                 noted_on: date, stage: str = "") -> "OutcomeUpdate":
-        applied = parse_date(values[4])
-        return cls(company=str(values[0] or ""), position=str(values[1] or ""), urls=list(urls),
-                   applied=applied.isoformat() if applied else "", row=r, outcome=outcome, note=note,
-                   noted_on=noted_on, stage=stage)
+        applied = parse_date(values["Date"])
+        return cls(company=str(values["Company"] or ""), position=str(values["Position"] or ""),
+                   urls=list(urls), applied=applied.isoformat() if applied else "", row=r, outcome=outcome,
+                   note=note, noted_on=noted_on, stage=stage)
 
 
 def _url_ids(urls) -> set[str]:
@@ -235,7 +298,7 @@ def locate(rows, update: OutcomeUpdate) -> int | None:
     want_pair = (_norm_text(update.company), _norm_text(update.position))
 
     def pair(values):
-        return (_norm_text(values[0]), _norm_text(values[1]))
+        return (_norm_text(values["Company"]), _norm_text(values["Position"]))
 
     def same(values, urls):
         return bool(want_urls & _url_ids(urls)) if want_urls else pair(values) == want_pair
@@ -248,7 +311,7 @@ def locate(rows, update: OutcomeUpdate) -> int | None:
         hits = [(r, values) for r, values in hits if pair(values) == want_pair] or hits
     if len(hits) > 1 and update.applied:
         hits = [(r, values) for r, values in hits
-                if (d := parse_date(values[4])) and d.isoformat() == update.applied] or hits
+                if (d := parse_date(values["Date"])) and d.isoformat() == update.applied] or hits
     return hits[0][0] if len(hits) == 1 else None
 
 
@@ -265,13 +328,14 @@ def _ensure_choices(ws, col: int, values) -> None:
             dv.formula1 = '"' + ",".join(choices + missing) + '"'
 
 
-def _ensure_dropdowns(ws) -> None:
-    _ensure_choices(ws, OUTCOME_COL, OUTCOMES)
-    _ensure_choices(ws, STAGE_COL, STAGES)
+def _ensure_dropdowns(ws, cols: dict[str, int]) -> None:
+    _ensure_choices(ws, cols["Outcome"], OUTCOMES)
+    _ensure_choices(ws, cols["Stage"], STAGES)
 
 
 def update_outcome(path, updates: list[OutcomeUpdate], backup_dir=None) -> tuple[list, list]:
-    """Back up, then set Outcome (and Stage when given) and append each note to Remarks.
+    """Back up, then set Outcome and Stage when given, append each note to Remarks, and date Last
+    Updated when the status really changed (OutcomeUpdate.moves_last_updated).
     -> ([(row, update) written], [not found])
 
     A job that isn't in the tracker exactly once is not written. Nothing found = no backup, no save."""
@@ -281,21 +345,29 @@ def update_outcome(path, updates: list[OutcomeUpdate], backup_dir=None) -> tuple
     except PermissionError as exc:
         raise TrackerLocked(str(exc)) from exc
     ws = wb[SHEET]
-    rows = _sheet_rows(ws)
+    cols = _columns(ws)
+    rows = _sheet_rows(ws, cols)
     written, missing = [], []
     for u in updates:
         r = locate(rows, u)
         if r is None:
             missing.append(u)
             continue
-        ws.cell(r, OUTCOME_COL).value = u.outcome
+        outcome, stage = ws.cell(r, cols["Outcome"]), ws.cell(r, cols["Stage"])
+        if u.moves_last_updated(outcome.value, stage.value):
+            last = ws.cell(r, cols["Last Updated"])
+            last.value = u.noted_on
+            last.number_format = DATE_FORMAT
+        if u.outcome:
+            outcome.value = u.outcome
         if u.stage:
-            ws.cell(r, STAGE_COL).value = u.stage
+            stage.value = u.stage
         if u.note.strip():
-            ws.cell(r, REMARKS_COL).value = format_note(u.noted_on, u.note, ws.cell(r, REMARKS_COL).value)
+            remarks = ws.cell(r, cols["Remarks"])
+            remarks.value = format_note(u.noted_on, u.note, remarks.value)
         written.append((r, u))
     if written:
-        _ensure_dropdowns(ws)
+        _ensure_dropdowns(ws, cols)
         backup(path, backup_dir)
         _save(wb, path)
     wb.close()
@@ -304,16 +376,16 @@ def update_outcome(path, updates: list[OutcomeUpdate], backup_dir=None) -> tuple
 
 # ---------- writing ----------
 
-def next_row(ws) -> int:
+def next_row(ws, company_col: int = 1) -> int:
     """First row after the last row that has a Company value."""
     for r in range(ws.max_row, 1, -1):
-        if ws.cell(r, 1).value not in (None, ""):
+        if ws.cell(r, company_col).value not in (None, ""):
             return r + 1
     return 2
 
 
 def format_posted(posted_date: date | None, source: str, today: date) -> str:
-    """Column D: 'Posted today-Tsenta' or 'Posted October 8, 2026-LinkedIn'."""
+    """Posted date/ Source: 'Posted today-Tsenta' or 'Posted October 8, 2026-LinkedIn'."""
     if posted_date is None:
         return source
     if posted_date == today:
@@ -336,8 +408,9 @@ def backup(path, backup_dir=None) -> Path:
     return target
 
 
-def _extend_table(ws, row: int) -> None:
-    """Grow Table1 and the E/F/G data validations so `row` keeps the date check and the dropdowns."""
+def _extend_table(ws, row: int, cols: dict[str, int]) -> None:
+    """Grow Table1 and the data validations on the date, Outcome and Stage columns so `row` keeps the
+    date checks and the dropdowns."""
     table = ws.tables[TABLE]
     min_col, min_row, max_col, max_row = range_boundaries(table.ref)
     if row <= max_row:
@@ -346,10 +419,11 @@ def _extend_table(ws, row: int) -> None:
     table.ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_end}"
     if table.autoFilter is not None:
         table.autoFilter.ref = table.ref
+    grown = {cols[f] for f in (*DATE_FIELDS, "Outcome", "Stage")}
     for dv in ws.data_validations.dataValidation:
         ranges = []
         for rng in dv.sqref.ranges:
-            if rng.min_col == rng.max_col and rng.min_col in (5, OUTCOME_COL, STAGE_COL) and rng.max_row == max_row:
+            if rng.min_col == rng.max_col and rng.min_col in grown and rng.max_row == max_row:
                 letter = get_column_letter(rng.min_col)
                 ranges.append(f"{letter}{rng.min_row}:{letter}{new_end}")
             else:
@@ -378,24 +452,23 @@ def append_row(path, row: TrackerRow, backup_dir=None) -> int:
     except PermissionError as exc:
         raise TrackerLocked(str(exc)) from exc
     ws = wb[SHEET]
-    r = next_row(ws)
-    _extend_table(ws, r)
-    _ensure_dropdowns(ws)
+    cols = _columns(ws)
+    r = next_row(ws, cols["Company"])
+    _extend_table(ws, r, cols)
+    _ensure_dropdowns(ws, cols)
 
-    if r > 2:  # same look as the row above (hyperlink font in C, date format in E, ...)
-        for col in range(1, LAST_COL + 1):
+    if r > 2:  # same look as the row above (hyperlink font on the URL, date formats, ...)
+        for col in range(1, max(cols.values()) + 1):
             ws.cell(r, col)._style = copy(ws.cell(r - 1, col)._style)
 
-    ws.cell(r, 1, row.company)
-    ws.cell(r, 2, row.position)
-    url_cell = ws.cell(r, 3, row.url)
-    url_cell.hyperlink = row.url
-    ws.cell(r, 4, row.posted)
-    date_cell = ws.cell(r, 5, row.applied_on)
-    date_cell.number_format = DATE_FORMAT
-    ws.cell(r, OUTCOME_COL, OUTCOME)
-    for col in range(STAGE_COL, LAST_COL + 1):
-        ws.cell(r, col).value = None
+    for field, value in row.values().items():
+        ws.cell(r, cols[field]).value = value or None  # Stage and Remarks: empty
+    ws.cell(r, cols["URL"]).hyperlink = row.url
+    for field in DATE_FIELDS:
+        ws.cell(r, cols[field]).number_format = DATE_FORMAT
+    for field in OPTIONAL:
+        if field in cols:
+            ws.cell(r, cols[field]).value = None
 
     backup(path, backup_dir)
     _save(wb, path)
@@ -416,11 +489,10 @@ def load_pending(pending_path) -> list[TrackerRow]:
 
 
 def pending_duplicates(pending_path, url: str | None = None, company: str | None = None,
-                       position: str | None = None) -> list[tuple[str, list]]:
-    """Rows still waiting in a pending file that match. -> [(file name, A..G values)]"""
+                       position: str | None = None) -> list[tuple[str, dict]]:
+    """Rows still waiting in a pending file that match. -> [(file name, values)]"""
     name = Path(pending_path).name
-    rows = [(name, [r.company, r.position, r.url, r.posted, r.applied_on, OUTCOME, ""], [r.url])
-            for r in load_pending(pending_path)]
+    rows = [(name, r.values(), [r.url]) for r in load_pending(pending_path)]
     return match_rows(rows, url=url, company=company, position=position)
 
 
