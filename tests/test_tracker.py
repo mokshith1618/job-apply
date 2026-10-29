@@ -11,7 +11,7 @@ from tracker import TrackerRow
 
 TODAY = date(2026, 10, 13)
 EXPECTED_ROW = 898  # first row after the last Company value (fake_tracker.LAST_ROW + 1, as in SPEC.md)
-HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome",
+HEADERS = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage",
            "Remarks", "Experience", "Key Skills"]
 ASHBY_ROW = KNOWN_ROW
 ASHBY_URL = KNOWN_URL + "?utm_source=LinkedInPaid"
@@ -93,9 +93,9 @@ def test_saved_file_is_structurally_intact(tracker_file):
     assert wb.sheetnames == ["Sheet1"]
     ws = wb["Sheet1"]
     table = ws.tables["Table1"]
-    assert table.ref == "A1:I1000"
+    assert table.ref == "A1:J1000"
     assert [col.name for col in table.tableColumns] == HEADERS
-    assert [c.value for c in ws[1]][:9] == HEADERS
+    assert [c.value for c in ws[1]][:10] == HEADERS
     assert table.tableStyleInfo.name == style_before
     assert {dv.type for dv in ws.data_validations.dataValidation} == {"list", "custom"}
     assert ws.freeze_panes == "A2"
@@ -145,7 +145,7 @@ def test_opens_in_real_excel(tracker_file):
     assert seen["outcome"] == "Applied"
     assert seen["outcome_validation"] == 3  # xlValidateList: Outcome dropdown
     assert seen["tables"] == 1
-    assert seen["table_range"] == "$A$1:$I$1000"
+    assert seen["table_range"] == "$A$1:$J$1000"
 
 
 # ---------- Done when: the duplicate check catches a URL already in the tracker ----------

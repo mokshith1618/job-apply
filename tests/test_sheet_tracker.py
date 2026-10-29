@@ -54,7 +54,7 @@ def test_format_and_dropdown_copied_from_row_above_and_date_format_set(tmp_path)
     assert [c["pasteType"] for c in copies] == ["PASTE_FORMAT", "PASTE_DATA_VALIDATION"]
     for c in copies:
         assert (c["source"]["sheetId"], c["source"]["startRowIndex"], c["destination"]["startRowIndex"]) == (7, 2, 3)
-        assert c["destination"]["endColumnIndex"] == 9
+        assert c["destination"]["endColumnIndex"] == 10
     cell = ws.spreadsheet.requests[-1]["repeatCell"]
     assert cell["range"]["startRowIndex"] == 3 and cell["range"]["startColumnIndex"] == 4
     assert cell["cell"]["userEnteredFormat"]["numberFormat"] == {"type": "DATE", "pattern": "M/d/yyyy"}
@@ -76,7 +76,7 @@ def test_wrong_header_writes_nothing(tmp_path):
 
 
 def test_header_match_ignores_case_and_spaces():
-    sheet_tracker.check_header([["company", "Position ", "URL", "Posted date /Source", "Date", "Outcome"]])
+    sheet_tracker.check_header([["company", "Position ", "URL", "Posted date /Source", "Date", "Outcome", " stage"]])
 
 
 def test_backup_csv_holds_values_before_the_write(tmp_path):
@@ -104,7 +104,7 @@ def test_duplicates_by_url_hyperlink_target_and_company_position():
     ws = sample_sheet()
     hits = sheet_tracker.find_duplicates(ws, url="https://www.jobs.ashbyhq.com/examplelabs/1234abcd/?utm_source=x")
     assert [r for r, _ in hits] == [2]
-    assert hits[0][1][0] == "Example Labs" and len(hits[0][1]) == 6
+    assert hits[0][1][0] == "Example Labs" and len(hits[0][1]) == 7
     assert [r for r, _ in sheet_tracker.find_duplicates(ws, url=LINKED_URL + "/apply")] == [3]
     assert [r for r, _ in sheet_tracker.find_duplicates(ws, company="linked co", position="BACKEND  engineer")] == [3]
     assert sheet_tracker.find_duplicates(ws, url=NEW_URL, company="Acme", position="SWE") == []
@@ -245,3 +245,11 @@ def test_no_config_is_excel_only(tracker_file):
                       fetch=fetch_ok, today=TODAY) == 0
     assert excel(tracker_file, "A898") == "Acme Robotics"
     assert not (tracker_file.parent / "pending_sheet.json").exists()
+
+
+def test_sheet_without_stage_column_writes_nothing(tmp_path):
+    old = ["Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Remarks"]
+    ws = FakeWorksheet([old, ["Acme", "SWE", "https://example.com/1", "", "6/20/2026", "Applied", ""]])
+    with pytest.raises(SheetMismatch):
+        sheet_tracker.append_row(ws, new_row(), tmp_path / "backups")
+    assert ws.updates == [] and not (tmp_path / "backups").exists()

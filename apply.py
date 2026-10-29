@@ -98,13 +98,22 @@ def ask_link(input_fn) -> str:
         print("  Paste the full link (starting with https://).")
 
 
-def ask_posted_date(input_fn, today: date) -> date | None:
+def read_posted(raw: str, today: date) -> date | str | None:
+    """Blank = unknown, 'today' or YYYY-MM-DD = a date (ValueError if it isn't a real one),
+    other text ('Sameday - Tsenta') = column D as typed."""
+    raw = " ".join(raw.split())
+    if not raw:
+        return None
+    if raw.lower() == "today" or re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", raw):
+        return parse_posted(raw.lower(), today)
+    return raw
+
+
+def ask_posted_date(input_fn, today: date) -> date | str | None:
     while True:
-        raw = input_fn("Posted date (YYYY-MM-DD, 'today', or blank if unknown): ").strip().lower()
-        if not raw:
-            return None
         try:
-            return parse_posted(raw, today)
+            return read_posted(input_fn("Posted date (YYYY-MM-DD, 'today', other text = as typed, "
+                                        "or blank if unknown): "), today)
         except ValueError:
             pass
 
@@ -116,22 +125,30 @@ def ask_keep(label: str, current: str, input_fn) -> str:
 
 def edit_details(row: tracker.TrackerRow, posted_date: date | None, source: str, input_fn,
                  today: date) -> tuple[tracker.TrackerRow, date | None, str]:
-    """e at the last question: change company, position, posted date or source (never the URL)."""
+    """e at the last question: change company, position, posted date or source (never the URL).
+    Text at the date question that isn't a date ('Sameday-Tsenta') is column D as typed."""
     company = ask_keep("Company", row.company, input_fn)
     position = ask_keep("Position", row.position, input_fn)
-    shown = posted_date.isoformat() if posted_date else "unknown"
+    # Column D typed by me in an earlier edit, not built from a date and source.
+    custom = None if row.posted == tracker.format_posted(posted_date, source, today) else row.posted
+    shown = custom or (posted_date.isoformat() if posted_date else "unknown")
     while True:
-        raw = input_fn(f"Posted date [{shown}] (YYYY-MM-DD, 'today', '-' = unknown, Enter = keep): ").strip().lower()
-        if not raw:
-            break
+        raw = input_fn(f"Posted date [{shown}] (YYYY-MM-DD, 'today', '-' = unknown, "
+                       "other text = as typed, Enter = keep): ").strip()
         if raw == "-":
-            posted_date = None
+            posted_date, custom = None, None
             break
         try:
-            posted_date = parse_posted(raw, today)
-            break
+            answer = read_posted(raw, today)
         except ValueError:
-            pass
+            continue
+        if isinstance(answer, str):
+            custom = answer
+        elif answer is not None:
+            posted_date, custom = answer, None
+        break
+    if custom is not None:
+        return dataclasses.replace(row, company=company, position=position, posted=custom), posted_date, source
     typed = input_fn(f"Source [{source}] (Enter = keep): ")
     if typed.strip():
         source = normalize_source(typed)
@@ -147,10 +164,11 @@ def show_row(row: tracker.TrackerRow) -> None:
 def show_duplicates(hits) -> None:
     print("\nAlready in the tracker:")
     for row, values in hits:
-        company, position, url, posted, applied, outcome = ("" if v is None else v for v in values)
+        company, position, url, posted, applied, outcome, stage = ("" if v is None else v for v in values)
         applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
         where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
-        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}\n           {url}")
+        stage = f" | {stage}" if stage else ""
+        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}{stage}\n           {url}")
 
 
 def load_config(path: Path) -> dict:
@@ -402,6 +420,9 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
     posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
+    posted_text = posted_date if isinstance(posted_date, str) else None  # typed instead of a date
+    if posted_text:
+        posted_date = None
 
     # A company or position I typed just now wasn't in the check above: show any match, don't ask.
     if (company, position) != checked:
@@ -414,7 +435,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         company=company,
         position=position,
         url=url,
-        posted=tracker.format_posted(posted_date, args.source, today),
+        posted=posted_text or tracker.format_posted(posted_date, args.source, today),
         applied_on=today,
     )
     show_row(row)

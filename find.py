@@ -1,9 +1,10 @@
-"""Search the tracker and change Outcome (milestone 7).
+"""Search the tracker and change Outcome or Stage (milestone 7).
 
     python find.py <text> [--tracker PATH] [--no-sheet]
 
 Finds every row whose Company, Position or URL contains <text>, prints them grouped by company,
-and changes Outcome (plus an optional dated note in Remarks) for the rows I pick.
+and changes Outcome or Stage (plus an optional dated note in Remarks) for the rows I pick.
+A Stage pick also sets Outcome to Awaiting reply; an Outcome pick leaves Stage as it is.
 """
 from __future__ import annotations
 
@@ -24,9 +25,11 @@ import tracker
 from sheet_tracker import SheetMismatch, SheetUnavailable
 
 MAX_SHOWN = 50
-OUTCOME_STYLES = {"Online Assessment": "yellow", "Interview": "blue", "Rejected": "dim"}
+OUTCOME_STYLES = {"Rejected": "dim"}
+STAGE_STYLES = {"Online Assessment": "yellow", "Initial Screening": "cyan", "Interview": "blue"}
+STATUSES = tracker.OUTCOMES + tracker.STAGES  # one menu: an Outcome or a Stage
 ROWS_PROMPT = "Rows to update (e.g. 1,2 or 1-3 or all; Enter = done): "
-STATUS_PROMPT = "New status: " + "  ".join(f"{i} {o}" for i, o in enumerate(tracker.OUTCOMES, start=1)) + " "
+STATUS_PROMPT = "New status: " + "  ".join(f"{i} {o}" for i, o in enumerate(STATUSES, start=1)) + " "
 NOTE_PROMPT = "Note for Remarks (optional): "
 
 
@@ -50,12 +53,17 @@ def parse_selection(text: str, n: int) -> list[int] | None:
     return sorted(picked)
 
 
-def parse_status(text: str) -> str | None:
-    """'2' or 'rejected' (any case) -> 'Rejected'; None if it isn't one of tracker.OUTCOMES."""
+def parse_status(text: str) -> tuple[str, str] | None:
+    """'2' or 'rejected' (any case) -> ('Rejected', ''): an Outcome, Stage kept.
+    '6' or 'interview' -> ('Awaiting reply', 'Interview'): a Stage. None if it's neither."""
     text = " ".join(text.split()).casefold()
-    if text.isdigit() and 1 <= int(text) <= len(tracker.OUTCOMES):
-        return tracker.OUTCOMES[int(text) - 1]
-    return next((o for o in tracker.OUTCOMES if o.casefold() == text), None)
+    if text.isdigit() and 1 <= int(text) <= len(STATUSES):
+        picked = STATUSES[int(text) - 1]
+    else:
+        picked = next((o for o in STATUSES if o.casefold() == text), None)
+    if picked is None:
+        return None
+    return (tracker.AWAITING, picked) if picked in tracker.STAGES else (picked, "")
 
 
 # ---------- table ----------
@@ -95,14 +103,14 @@ def show_table(console: Console, hits, text: str) -> list:
     console.print(f'{len(hits)} job{"" if len(hits) == 1 else "s"} found for "{text}"\n',
                   markup=False, highlight=False)
     table = Table(box=None, header_style="bold", pad_edge=False)
-    for name in ("#", "Row", "Date", "Company", "Position", "Outcome", "Remarks", "Link"):
+    for name in ("#", "Row", "Date", "Company", "Position", "Outcome", "Stage", "Remarks", "Link"):
         table.add_column(name, overflow="fold", justify="right" if name in ("#", "Row") else "left")
     for i, (r, values, urls) in enumerate(shown, start=1):
         d = tracker.parse_date(values[4])
-        outcome = _cell(values[5])
+        outcome, stage = _cell(values[5]), _cell(values[6])
         table.add_row(str(i), str(r), f"{d:%m/%d/%Y}" if d else _cell(values[4]), Text(_cell(values[0])),
                       Text(_cell(values[1])), Text(outcome, style=OUTCOME_STYLES.get(outcome, "")),
-                      Text(_cell(values[6])), _link(urls))
+                      Text(stage, style=STAGE_STYLES.get(stage, "")), Text(_cell(values[7])), _link(urls))
     console.print(table)
     if len(ordered) > MAX_SHOWN:
         console.print(f"\n{len(ordered) - MAX_SHOWN} more not shown; narrow the search.", highlight=False)
@@ -124,7 +132,7 @@ def _read(sheet: apply.Sheet, tracker_path: Path) -> tuple[list, Path]:
 
 def _waiting(pending_path: Path, text: str) -> int:
     """How many rows still waiting in a pending rows file match the search (they can't be updated yet)."""
-    rows = [(0, [r.company, r.position, r.url, r.posted, r.applied_on, "Applied", ""], [r.url])
+    rows = [(0, [r.company, r.position, r.url, r.posted, r.applied_on, tracker.OUTCOME, "", ""], [r.url])
             for r in tracker.load_pending(pending_path)]
     return len(tracker.search_rows(rows, text))
 
@@ -194,10 +202,12 @@ def _loop(sheet: apply.Sheet, tracker_path: Path, text: str, input_fn, today: da
             continue
         note = input_fn(NOTE_PROMPT).strip()
         n = len(picked)
-        if input_fn(f"Update {n} row{'s' if n > 1 else ''} to {status}? [y/N] ").strip().lower() != "y":
+        outcome, stage = status
+        if input_fn(f"Update {n} row{'s' if n > 1 else ''} to {stage or outcome}? [y/N] ").strip().lower() != "y":
             print("Nothing changed.\n")
             continue
-        updates = [tracker.OutcomeUpdate.for_row(*shown[i - 1], outcome=status, note=note, noted_on=today)
+        updates = [tracker.OutcomeUpdate.for_row(*shown[i - 1], outcome=outcome, note=note, noted_on=today,
+                                                 stage=stage)
                    for i in picked]
         _write(sheet, tracker_path, updates, input_fn)
         print()
