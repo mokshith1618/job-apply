@@ -50,27 +50,27 @@ def _applied_between(rows, first: date, last: date) -> list[Facts]:
     return [f for f in rows if f.job.applied and first <= f.job.applied <= last]
 
 
-# ---------- 1-3. summary, today and this week ----------
+# ---------- 1-3. highlights, today and this week ----------
 
 @dataclass
 class Today:
     applications: list[Facts]  # Date = today, most recently added (highest row) first
     yesterday: int  # applications with Date = yesterday
-    updates: list[Facts]  # Last Updated = today, with a Stage or Outcome; sheet order
+    updates: list[Facts]  # Last Updated = today with a Stage or Outcome, new applications left out; highest row first
+
+
+def _new_today(f: Facts, today: date) -> bool:
+    """Applied today and nothing has happened yet: already in today's applications, not an update."""
+    return f.job.applied == today and f.job.outcome == "Applied" and not f.job.stage
 
 
 def today_facts(rows: list[Facts], today: date) -> Today:
-    return Today(applications=sorted((f for f in rows if f.job.applied == today), key=lambda f: -f.job.row),
+    def newest_first(fs):
+        return sorted(fs, key=lambda f: -f.job.row)
+    return Today(applications=newest_first(f for f in rows if f.job.applied == today),
                  yesterday=sum(f.job.applied == today - timedelta(days=1) for f in rows),
-                 updates=[f for f in rows if f.job.last_updated == today and (f.job.stage or f.job.outcome)])
-
-
-def status_updates_text(updates: list[Facts]) -> str | None:
-    """'Status updates today: Acme (Interview), Zen (Rejected).' (the Stage, else the Outcome); None if none."""
-    if not updates:
-        return None
-    return "Status updates today: " + ", ".join(f"{f.job.company} ({f.job.stage or f.job.outcome})"
-                                                for f in updates) + "."
+                 updates=newest_first(f for f in rows if f.job.last_updated == today
+                                      and (f.job.stage or f.job.outcome) and not _new_today(f, today)))
 
 
 @dataclass
@@ -105,25 +105,24 @@ def best_source(rows: list[Facts], settings: Settings) -> tuple[str, int, int] |
     return best
 
 
-def summary(rows: list[Facts], settings: Settings, today: date) -> list[str]:
-    """The four plain sentences; one with nothing to say is left out (never the first two)."""
-    week = this_week(rows, today)
-    if week.new_responses:
-        names = ", ".join(f"{f.job.company} ({f.job.stage})" for f in week.new_responses)
-        responses = f"{plural(len(week.new_responses), 'new response')}: {names}"
-    else:
-        responses = "No new responses"
-    sentences = [f"Today: {plural(len(today_facts(rows, today).applications), 'application')} "
-                 f"(target {settings.daily_target}).",
-                 f"This week: {plural(week.applications, 'application')} (target {settings.weekly_target}, "
-                 f"last week {week.last_week}). {responses}."]
-    if week.in_progress or week.awaiting:
-        sentences.append(f"{week.in_progress} in progress and {week.awaiting} awaiting reply.")
+REJECTED_TODAY, RESPONSE, NEUTRAL = "rejected", "response", "neutral"  # highlight chip kinds
+
+
+def highlights(rows: list[Facts], settings: Settings, today: date) -> list[tuple[str, str]]:
+    """Up to 3 chips that only say what the cards don't: rejections set today, new responses this week
+    (or that there are none), the best source. [(kind, text)]; a chip with nothing to say is left out."""
+    chips = []
+    rejected = sum(f.job.outcome == REJECTED and f.job.last_updated == today for f in rows)
+    if rejected:
+        chips.append((REJECTED_TODAY, f"{plural(rejected, 'rejection')} today"))
+    new = len(this_week(rows, today).new_responses)
+    chips.append((RESPONSE, f"{plural(new, 'new response')} this week") if new
+                 else (NEUTRAL, "No new responses this week"))
     best = best_source(rows, settings)
     if best:
         name, r, n = best
-        sentences.append(f"Best source so far: {name}, {r} responses from {n} applications.")
-    return sentences
+        chips.append((NEUTRAL, f"Best source: {name} · {r} of {n}"))
+    return chips
 
 
 # ---------- 3. needs your attention ----------

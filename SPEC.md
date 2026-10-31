@@ -620,23 +620,27 @@ Weeks run Monday to Sunday; "last week" is the previous full week.
 
 Top of the page fits on one screen without scrolling: sections 1-5 (on a desktop window).
 
-**1. Summary: four plain sentences** (the opening of the page, larger text, no visible heading)
-Templates, filled from the data; a sentence is left out if it has nothing to say:
-- `Today: {n} applications (target {daily_target}).`
-- `This week: {n} applications (target {target}, last week {n_last}). {responses_text}.`
-  where responses_text = `No new responses` / `{k} new response(s): {Company} ({Stage}), ...`
-  (new = Last Updated in this week and Stage set; if Last Updated is blank, not counted).
-- `{p} in progress and {a} awaiting reply.` (left out if both 0)
-- `Best source so far: {source}, {r} responses from {n} applications.` Only if that
-  source has n ≥ min_group and at least 2 responses; otherwise left out.
+**1. Highlights** (the opening of the page, below the date line, no visible heading)
+A row of up to 3 chips that only say what the cards below don't; a chip with nothing to say is
+left out:
+- `{n} rejection(s) today` (muted red): rows with Outcome Rejected and Last Updated = today.
+- `{k} new response(s) this week` (green): Stage set and Last Updated in this week (blank Last
+  Updated not counted); none: `No new responses this week` (neutral).
+- `Best source: {source} · {r} of {n}` (neutral): the source with the best response rate among
+  those with n ≥ min_group and at least 2 responses (ties: more responses); otherwise left out.
 
 **2. Today** (card, the same style as This week)
 A large progress bar `4 of 10`: applications with Date = today (`--today` counts) toward
 `daily_target`, with the change from yesterday as a small badge (`↑ 3 from yesterday`,
 `↓ 2 from yesterday`, `same as yesterday`). Below it today's applications, `Company · Position`,
 most recently added first (highest row first; apply.py appends rows), at most 8, the rest under
-`+N more`; none: `No applications yet today.` Then, only if any row has Last Updated = today and a
-Stage or Outcome: `Status updates today: {Company} ({Stage, else Outcome}), ...`
+`+N more`; none: `No applications yet today.`
+Then **Updates today ({n})** (a small heading; left out when there are none): rows with Last
+Updated = today and a Stage or Outcome, except rows applied today that are still Outcome Applied
+with no Stage (those are listed above). One row each, in the same style: Company (bold) ·
+Position (muted) · an Outcome pill (Rejected = muted red, In progress = blue, Awaiting reply =
+amber, anything else grey) and a Stage pill (green) if Stage is set. Highest row first, at most
+8, the rest under `+N more`.
 
 **3. This week** (card)
 A large progress bar `19 of 70`: applications this week (Monday to today) toward
