@@ -12,6 +12,31 @@
 {% endfor %}
 </tbody></table></div>
 {% endmacro %}
+{% macro progress(p) %}
+<div class="progress-head">
+<span class="big">{{ p.count }}</span><span class="of">of {{ p.target }}</span>
+<span class="badge {{ p.direction }}">{{ p.change }}</span>
+</div>
+<div class="track" role="progressbar" aria-label="{{ p.label }}" aria-valuemin="0" aria-valuemax="{{ p.target }}" aria-valuenow="{{ p.count }}"><div class="fill" style="width: {{ p.percent }}%"></div></div>
+{% endmacro %}
+{% macro today_item(a) %}<li><span class="today-company">{{ a.company }}</span> <span class="today-sep">·</span> <span class="today-position">{{ a.position }}</span>
+{%- if a.outcome is defined %}<span class="today-pills"><span class="pill {{ a.outcome_cls }}">{{ a.outcome }}</span>
+{%- if a.stage %}<span class="pill stage">{{ a.stage }}</span>{% endif %}</span>{% endif %}</li>{% endmacro %}
+{% macro today_list(items, more) %}
+<ul class="today-list">
+{% for a in items %}
+{{ today_item(a) }}
+{% endfor %}
+</ul>
+{% if more %}
+<details class="more"><summary>+{{ more|length }} more</summary>
+<ul class="today-list">
+{% for a in more %}
+{{ today_item(a) }}
+{% endfor %}
+</ul></details>
+{% endif %}
+{% endmacro %}
 {% macro chip(c) %}<li class="chip {{ c.kind }}"><span class="chip-kind">{{ c.label }}</span> <span class="chip-text">{{ c.text }}</span></li>{% endmacro %}
 {% macro weekly_svg(c) %}
 <svg class="chart {{ c.shape }}" viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="Applications per week">
@@ -51,18 +76,33 @@
 <main>
 <header class="page-head"><h1>Job search report</h1><span class="date">{{ title_date }}</span></header>
 
-<section id="summary" class="summary"><h2 class="visually-hidden">Summary</h2>
-{% for s in summary %}
-<p>{{ s }}</p>
+<section id="highlights"><h2 class="visually-hidden">Highlights</h2>
+{% if highlights %}
+<ul class="highlights">
+{% for kind, text in highlights %}
+<li class="highlight {{ kind }}">{{ text }}</li>
 {% endfor %}
+</ul>
+{% endif %}
+</section>
+
+<section id="today" class="card"><h2>Today</h2>
+{{ progress(day.progress) }}
+{% if day.shown %}
+{{ today_list(day.shown, day.more) }}
+{% else %}
+<p class="calm">No applications yet today.</p>
+{% endif %}
+{% if day.updates_count %}
+<div class="updates">
+<h3 class="mini">Updates today ({{ day.updates_count }})</h3>
+{{ today_list(day.updates_shown, day.updates_more) }}
+</div>
+{% endif %}
 </section>
 
 <section id="this-week" class="card"><h2>This week</h2>
-<div class="progress-head">
-<span class="big">{{ week.applications }}</span><span class="of">of {{ week.target }}</span>
-<span class="badge {{ week.direction }}">{{ week.change }}</span>
-</div>
-<div class="track" role="progressbar" aria-label="Applications this week toward the weekly target" aria-valuemin="0" aria-valuemax="{{ week.target }}" aria-valuenow="{{ week.applications }}"><div class="fill" style="width: {{ week.percent }}%"></div></div>
+{{ progress(week.progress) }}
 <p class="sub">{{ week.responses }} · {{ week.in_progress }} in progress</p>
 </section>
 

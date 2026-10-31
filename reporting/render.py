@@ -71,14 +71,35 @@ def n(value: float) -> str:
     return f"{value:.1f}"
 
 
-# ---------- 2-4. this week, totals, attention ----------
+# ---------- 2-5. today, this week, totals, attention ----------
+
+def progress(count: int, target: int, last: int, period: str, label: str) -> dict:
+    """The big number toward a target, its bar (full at or over the target) and the change badge."""
+    return {"count": count, "target": target, "label": label,
+            "percent": min(100, round(100 * count / target)) if target > 0 else 100,
+            "change": metrics.change_text(count, last, period),
+            "direction": "up" if count > last else "down" if count < last else "same"}
+
+
+UPDATE_CLASS = {REJECTED: "rejected", IN_PROGRESS: "progress", AWAITING: "followup"}  # else grey
+
+
+def today_card(t: metrics.Today, target: int) -> dict:
+    lines = [{"company": f.job.company, "position": f.job.position} for f in t.applications]
+    shown, more = metrics.cap(lines, metrics.TODAY_SHOWN)
+    updates = [{"company": f.job.company, "position": f.job.position, "stage": f.job.stage,
+                "outcome": f.job.outcome, "outcome_cls": UPDATE_CLASS.get(f.job.outcome, "waiting")}
+               for f in t.updates]
+    updates_shown, updates_more = metrics.cap(updates, metrics.TODAY_SHOWN)
+    return {"progress": progress(len(t.applications), target, t.yesterday, "yesterday",
+                                 "Applications today toward the daily target"),
+            "shown": shown, "more": more,
+            "updates_count": len(updates), "updates_shown": updates_shown, "updates_more": updates_more}
+
 
 def this_week(week: metrics.ThisWeek, target: int) -> dict:
-    direction = "up" if week.applications > week.last_week else "down" if week.applications < week.last_week \
-        else "same"
-    return {"applications": week.applications, "target": target,
-            "percent": min(100, round(100 * week.applications / target)) if target > 0 else 100,
-            "change": metrics.change_text(week.applications, week.last_week), "direction": direction,
+    return {"progress": progress(week.applications, target, week.last_week, "last week",
+                                 "Applications this week toward the weekly target"),
             "responses": metrics.plural(len(week.new_responses), "new response"),
             "in_progress": week.in_progress}
 
@@ -243,7 +264,8 @@ def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, sou
     return ENV.get_template("report.html.j2").render(
         css=Markup((HERE / "static" / "report.css").read_text(encoding="utf-8")),
         title_date=f"{today:%B} {today.day}, {today.year}",
-        summary=metrics.summary(rows, settings, today),
+        highlights=metrics.highlights(rows, settings, today),
+        day=today_card(metrics.today_facts(rows, today), settings.daily_target),
         week=this_week(metrics.this_week(rows, today), settings.weekly_target),
         tiles=tiles(metrics.totals(rows)),
         attention_shown=shown, attention_more=more,

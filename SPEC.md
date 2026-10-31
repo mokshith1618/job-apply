@@ -573,6 +573,7 @@ python report.py [--sheet] [--out PATH] [--no-open] [--today YYYY-MM-DD] [--trac
 
 ```yaml
 weekly_target: 70          # applications per week
+# daily_target: 10         # applications per day; default: weekly_target / 7, rounded up
 follow_up_days: 14         # Awaiting reply older than this (by Last Updated) = follow up
 no_reply_days: 30          # Applied, no Stage, older than this = no reply
 many_applications: 5       # this many applications to one company = flagged
@@ -617,28 +618,41 @@ Weeks run Monday to Sunday; "last week" is the previous full week.
 
 ### Page layout (always in this order, same every time)
 
-Top of the page fits on one screen without scrolling: sections 1-4 (on a desktop window).
+Top of the page fits on one screen without scrolling: sections 1-5 (on a desktop window).
 
-**1. Summary: three plain sentences** (the opening of the page, larger text, no visible heading)
-Templates, filled from the data; a sentence is left out if it has nothing to say:
-- `This week: {n} applications (target {target}, last week {n_last}). {responses_text}.`
-  where responses_text = `No new responses` / `{k} new response(s): {Company} ({Stage}), ...`
-  (new = Last Updated in this week and Stage set; if Last Updated is blank, not counted).
-- `{p} in progress and {a} awaiting reply.` (left out if both 0)
-- `Best source so far: {source}, {r} responses from {n} applications.` Only if that
-  source has n ≥ min_group and at least 2 responses; otherwise left out.
+**1. Highlights** (the opening of the page, below the date line, no visible heading)
+A row of up to 3 chips that only say what the cards below don't; a chip with nothing to say is
+left out:
+- `{n} rejection(s) today` (muted red): rows with Outcome Rejected and Last Updated = today.
+- `{k} new response(s) this week` (green): Stage set and Last Updated in this week (blank Last
+  Updated not counted); none: `No new responses this week` (neutral).
+- `Best source: {source} · {r} of {n}` (neutral): the source with the best response rate among
+  those with n ≥ min_group and at least 2 responses (ties: more responses); otherwise left out.
 
-**2. This week** (card)
+**2. Today** (card, the same style as This week)
+A large progress bar `4 of 10`: applications with Date = today (`--today` counts) toward
+`daily_target`, with the change from yesterday as a small badge (`↑ 3 from yesterday`,
+`↓ 2 from yesterday`, `same as yesterday`). Below it today's applications, `Company · Position`,
+most recently added first (highest row first; apply.py appends rows), at most 8, the rest under
+`+N more`; none: `No applications yet today.`
+Then **Updates today ({n})** (a small heading; left out when there are none): rows with Last
+Updated = today and a Stage or Outcome, except rows applied today that are still Outcome Applied
+with no Stage (those are listed above). One row each, in the same style: Company (bold) ·
+Position (muted) · an Outcome pill (Rejected = muted red, In progress = blue, Awaiting reply =
+amber, anything else grey) and a Stage pill (green) if Stage is set. Highest row first, at most
+8, the rest under `+N more`.
+
+**3. This week** (card)
 A large progress bar `19 of 70`: applications this week (Monday to today) toward
 `weekly_target` (full bar at or over the target; the text shows the real number), the change
 from last full week as a small badge (`↑ 13 from last week`, up / down / same). Below it, small:
 responses this week, rows in progress.
 
-**3. Totals** (one row of 4 stat tiles, 2 x 2 on narrow windows)
+**4. Totals** (one row of 4 stat tiles, 2 x 2 on narrow windows)
 Large numbers with short labels: Applied (all rows), Responses (Stage set), Awaiting reply,
 Rejected (Outcome Rejected).
 
-**4. Needs your attention** (card)
+**5. Needs your attention** (card)
 Each line is a chip colored by type: Your turn = blue, Follow up = amber, Many applications =
 grey. Every Your turn and Follow up line is shown; at most 3 Many applications lines, the rest
 under `+N more` (expandable). In this order:
@@ -651,47 +665,47 @@ under `+N more` (expandable). In this order:
    `{Company}: {n} applications, no response`.
 Nothing to show: `Nothing needs your attention.`
 
-**5. Weekly** (last `weeks_shown` weeks, ending with the current week)
+**6. Weekly** (last `weeks_shown` weeks, ending with the current week)
 Bar chart: applications per week (by Date), a dot on each bar for applications from that
 week that got a response, a dashed line at `weekly_target`. Week labels `Oct 20`. Exact
 numbers on hover (SVG `<title>`) and in a small table under a "Show numbers" toggle.
 Bars at or above the target are drawn brighter.
 
-**6. Monthly** (chart, the last 12 months with applications, oldest left)
+**7. Monthly** (chart, the last 12 months with applications, oldest left)
 Small paired bars per month: applications (neutral) and responses (green), labels `Oct`
 (`Jan 2026` style when the year changes). Exact numbers on hover (SVG `<title>`) and, under
 "Show numbers", the table of every month, newest first: Month · Applications · Responses ·
 Rejected · Response rate. Response rate as `5 of 128 (3.9%)`; when applications < `min_group`,
 counts only.
 
-**7. Pipeline** (a strip of 4 steps with counts)
+**8. Pipeline** (a strip of 4 steps with counts)
 Applied → Responses → Initial Screening → Interview. Counts are "reached at least": Initial
 Screening = Stage Initial Screening or Interview; Interview = Stage Interview. Online Assessment
 counts only toward Responses.
 
-**8. Your responses** (cards, every row with a Stage, newest applied first)
+**9. Your responses** (cards, every row with a Stage, newest applied first)
 Heading shows the count: `Your responses (12)`. Each card: Company (bold), Position below,
 a Stage pill (green) and an Outcome pill (In progress = blue, Awaiting reply = grey, or amber
 when Last Updated is older than `follow_up_days`, Rejected = muted red). Source, Job system,
 Applied, Last Updated and the link inside a collapsed `<details>` on the card.
 
-**9. Top 10 companies, with outcomes**
+**10. Top 10 companies, with outcomes**
 By number of applications (ties: most recent application first). One horizontal bar each,
 length = applications, segmented: green = rows with a response, muted red = rejected with no
 response, the rest neutral. The numbers on hover (SVG `<title>`) and as text at the end of the
 bar: `6 · 1 response · 2 rejected` (Rejected counts every Outcome Rejected row).
 
-**10. No reply after {no_reply_days} days** (collapsed by default)
+**11. No reply after {no_reply_days} days** (collapsed by default)
 Count line always visible: `412 applications with no reply after 30 days.`
 Expanded: count per month, and under each month a collapsed list (Company · Position · Applied).
 
-**11. More details** (collapsed by default)
+**12. More details** (collapsed by default)
 For Source, Job system, Title level, Title type, Remark tags: a table each with
 Group · Applications · Responses · Rate · Rejection notices. Rate only when applications ≥
 `min_group`, else `too few to compare`. Column note: "Rejection notices show how often
 companies tell you, not how well you did."
 
-**12. Data check** (collapsed; heading shows the count of issues)
+**13. Data check** (collapsed; heading shows the count of issues)
 Rows with: blank Position, blank URL, no source found in D (D naming `Other`, as apply.py
 writes it, counts as a source), URL stored as a formula (Excel only: every app-written Sheet
 row is a `=HYPERLINK` formula by design), Stage set but Outcome Applied (old model: should be

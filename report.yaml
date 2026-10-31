@@ -1,5 +1,6 @@
 # Settings for report.py (milestone 9). No personal data; a key left out keeps its default.
 weekly_target: 70          # applications per week
+# daily_target: 10         # applications per day; default: weekly_target / 7, rounded up
 follow_up_days: 14         # Awaiting reply older than this (by Last Updated) = follow up
 no_reply_days: 30          # Applied, no Stage, older than this = no reply
 many_applications: 5       # this many applications to one company = flagged
