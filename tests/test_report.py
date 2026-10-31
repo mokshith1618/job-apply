@@ -101,6 +101,7 @@ def test_settings_defaults_when_no_file(tmp_path):
     assert s == Settings()
     assert (s.weekly_target, s.follow_up_days, s.no_reply_days, s.many_applications, s.min_group,
             s.weeks_shown) == (70, 14, 30, 5, 20, 12)
+    assert s.daily_target == 10  # 70 / 7, rounded up
     assert s.sources == ["Jobright", "Tsenta", "LinkedIn"]
     assert list(s.title_types) == ["Backend", "DevOps/Cloud/SRE/Platform", "AI/ML/Data", "Software (general)"]
     assert list(s.remark_tags) == ["No sponsorship", "Clearance/citizenship", "Referral"]
@@ -111,6 +112,15 @@ def test_settings_file_overrides_only_its_keys(tmp_path):
     path.write_text("weekly_target: 10\nsources: [Handshake]\n", encoding="utf-8")
     s = load.load_settings(path)
     assert s.weekly_target == 10 and s.sources == ["Handshake"] and s.follow_up_days == 14
+
+
+def test_daily_target_default_follows_the_weekly_target(tmp_path):
+    path = tmp_path / "report.yaml"
+    path.write_text("weekly_target: 15\n", encoding="utf-8")
+    assert load.load_settings(path).daily_target == 3  # 15 / 7 = 2.1, rounded up
+    path.write_text("weekly_target: 15\ndaily_target: 4\n", encoding="utf-8")
+    assert load.load_settings(path).daily_target == 4
+    assert Settings(weekly_target=14).daily_target == 2
 
 
 def test_settings_unknown_key_is_named(tmp_path):
@@ -278,16 +288,18 @@ def test_this_week():
 
 def test_summary_sentences():
     assert metrics.summary(WEEK_ROWS, S, TODAY) == [
+        "Today: 2 applications (target 10).",
         "This week: 3 applications (target 70, last week 2). 1 new response: Delta (Interview).",
         "1 in progress and 2 awaiting reply.",
     ]
 
 
 def test_summary_leaves_out_empty_sentences():
-    assert metrics.summary([], S, TODAY) == ["This week: 0 applications (target 70, last week 0). No new responses."]
-    one = [F(applied=d(10, 27))]
-    assert metrics.summary(one, S, TODAY)[0] == (
-        "This week: 1 application (target 70, last week 0). No new responses.")
+    assert metrics.summary([], S, TODAY) == ["Today: 0 applications (target 10).",
+                                             "This week: 0 applications (target 70, last week 0). No new responses."]
+    one = [F(applied=d(10, 28))]
+    assert metrics.summary(one, S, TODAY)[:2] == [
+        "Today: 1 application (target 10).", "This week: 1 application (target 70, last week 0). No new responses."]
 
 
 def _source_rows(source, n, responded, applied=d(1, 5)):
@@ -298,6 +310,7 @@ def _source_rows(source, n, responded, applied=d(1, 5)):
 def test_summary_best_source():
     rows = _source_rows("Tsenta", 20, 2) + _source_rows("Jobright", 25, 2) + _source_rows("LinkedIn", 5, 3)
     assert metrics.summary(rows, S, TODAY) == [
+        "Today: 0 applications (target 10).",
         "This week: 0 applications (target 70, last week 0). No new responses.",
         "Best source so far: Tsenta, 2 responses from 20 applications.",  # 10% beats 8%; LinkedIn too few
     ]
@@ -305,14 +318,45 @@ def test_summary_best_source():
 
 def test_summary_no_best_source_with_one_response():
     rows = _source_rows("Tsenta", 30, 1)
-    assert len(metrics.summary(rows, S, TODAY)) == 1
+    assert len(metrics.summary(rows, S, TODAY)) == 2  # today and this week only
 
 
 def test_summary_two_new_responses():
     rows = [F(company="Acme", stage="Interview", outcome="In progress", last_updated=d(10, 26)),
             F(company="Zen", stage="Online Assessment", outcome="Awaiting reply", last_updated=d(10, 28))]
-    assert metrics.summary(rows, S, TODAY)[0].endswith(
+    assert metrics.summary(rows, S, TODAY)[1].endswith(
         "2 new responses: Acme (Interview), Zen (Online Assessment).")
+
+
+def test_today_count_and_order():
+    rows = [F(row=5, company="Old", applied=d(10, 28)), F(row=9, company="New", applied=d(10, 28)),
+            F(row=7, company="Mid", applied=d(10, 28)), F(row=8, company="Yesterday", applied=d(10, 27)),
+            F(row=10, company="Tomorrow", applied=d(10, 29)), F(row=11, company="NoDate", applied=None)]
+    t = metrics.today_facts(rows, TODAY)
+    assert [f.job.company for f in t.applications] == ["New", "Mid", "Old"]  # most recently added first
+    assert t.yesterday == 1
+    assert metrics.today_facts(rows, d(10, 29)).applications[0].job.company == "Tomorrow"  # follows --today
+
+
+@pytest.mark.parametrize("today_n, yesterday_n, text", [
+    (4, 1, "↑ 3 from yesterday"), (1, 3, "↓ 2 from yesterday"), (2, 2, "same as yesterday"),
+    (0, 0, "same as yesterday"), (0, 2, "↓ 2 from yesterday"), (3, 0, "↑ 3 from yesterday"),
+])
+def test_today_against_yesterday(today_n, yesterday_n, text):
+    rows = [F(applied=d(10, 28))] * today_n + [F(applied=d(10, 27))] * yesterday_n
+    t = metrics.today_facts(rows, TODAY)
+    assert (len(t.applications), t.yesterday) == (today_n, yesterday_n)
+    assert metrics.change_text(len(t.applications), t.yesterday, "yesterday") == text
+
+
+def test_status_updates_today():
+    rows = [F(company="Acme", stage="Interview", outcome="In progress", last_updated=d(10, 28)),
+            F(company="Zen", outcome="Rejected", last_updated=d(10, 28)),
+            F(company="Old", stage="Interview", outcome="Awaiting reply", last_updated=d(10, 27)),
+            F(company="Blank", outcome="", last_updated=d(10, 28))]
+    t = metrics.today_facts(rows, TODAY)
+    assert metrics.status_updates_text(t.updates) == "Status updates today: Acme (Interview), Zen (Rejected)."
+    assert metrics.status_updates_text(metrics.today_facts(rows[2:], TODAY).updates) is None
 
 
 ATTENTION_ROWS = [
@@ -468,9 +512,9 @@ def test_top_companies_rejected_with_no_response():
 
 # ---------- render ----------
 
-SECTIONS = ["summary", "this-week", "totals", "attention", "weekly", "monthly", "pipeline", "responses", "top",
+SECTIONS = ["summary", "today", "this-week", "totals", "attention", "weekly", "monthly", "pipeline", "responses", "top",
             "no-reply", "details", "data-check"]
-HEADINGS = ["Summary", "This week", "Totals", "Needs your attention", "Weekly", "Monthly", "Pipeline",
+HEADINGS = ["Summary", "Today", "This week", "Totals", "Needs your attention", "Weekly", "Monthly", "Pipeline",
             "Your responses (", "Top 10 companies, with outcomes", "No reply after 30 days", "More details",
             "Data check ("]
 GENERATED = datetime(2026, 10, 28, 9, 5)
@@ -491,7 +535,7 @@ def test_sections_in_order():
     assert len(headings) == len(HEADINGS)
     for heading, start in zip(headings, HEADINGS):
         assert heading.startswith(start), (heading, start)
-    assert "Your responses (11)" in headings[7]
+    assert "Your responses (11)" in headings[8]
 
 
 def test_sections_present_with_no_rows():
@@ -547,6 +591,33 @@ def test_this_week_progress_and_badge():
     assert 'style="width: 100%"' in over and '<span class="big">75</span>' in over
     assert '<span class="badge down">↓ 2 from last week</span>' in page([F(applied=d(10, 20))] * 2)
     assert '<span class="badge same">same as last week</span>' in page([])
+
+
+def today_items(html):
+    return re.findall(r'<li><span class="today-company">([^<]*)</span> <span class="today-sep">·</span> '
+                      r'<span class="today-position">([^<]*)</span></li>', html)
+
+
+def test_today_card():
+    rows = [F(row=r, company=f"C{r}", position=f"Role {r}", applied=d(10, 28)) for r in range(2, 12)]  # 10 today
+    rows += [F(applied=d(10, 27))] * 3
+    card = section(page(rows), "today")
+    assert '<span class="big">10</span><span class="of">of 10</span>' in card
+    assert '<span class="badge up">↑ 7 from yesterday</span>' in card and 'style="width: 100%"' in card
+    shown, more = card.split('<details class="more">')
+    assert today_items(shown) == [(f"C{r}", f"Role {r}") for r in range(11, 3, -1)]  # 8, newest first
+    assert "<summary>+2 more</summary>" in more and today_items(more) == [("C3", "Role 3"), ("C2", "Role 2")]
+    assert "Status updates today" not in card
+
+
+def test_today_card_empty_and_updates():
+    card = section(page([F(applied=d(10, 27)), F(company="<b>Zen</b>", stage="Interview", outcome="In progress",
+                                                  last_updated=d(10, 28))]), "today")
+    assert '<span class="big">0</span>' in card and '<span class="badge down">↓ 1 from yesterday</span>' in card
+    assert "No applications yet today." in card and "more</summary>" not in card
+    assert "Status updates today: &lt;b&gt;Zen&lt;/b&gt; (Interview)." in card
+    few = section(page([F(row=3, company="A & B", applied=d(10, 28))]), "today")
+    assert today_items(few) == [("A &amp; B", "Software Engineer")] and "<details" not in few
 
 
 def test_stat_tiles():
@@ -726,6 +797,8 @@ def test_report_end_to_end(tracker_file, report_env):
     assert opened == []
     html = out.read_text(encoding="utf-8")
     for text in [
+        "Today: 0 applications (target 10).",
+        "No applications yet today.",
         "This week: 2 applications (target 70, last week 1). 1 new response: Beta (Online Assessment).",
         "2 in progress and 2 awaiting reply.",
         "Beta: Online Assessment to do since 1 day",
@@ -740,7 +813,7 @@ def test_report_end_to_end(tracker_file, report_env):
         "from tracker.xlsx · 896 rows",
     ]:
         assert text in html, text
-    assert "+1 more" not in html and "<script" not in html
+    assert "+1 more" not in html and "<script" not in html and "Status updates today" not in html
     assert '<a href="https://example.com/jobs/4" target="_blank" rel="noopener noreferrer">example.com</a>' in html
 
 

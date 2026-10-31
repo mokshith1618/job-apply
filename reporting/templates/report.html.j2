@@ -12,6 +12,14 @@
 {% endfor %}
 </tbody></table></div>
 {% endmacro %}
+{% macro progress(p) %}
+<div class="progress-head">
+<span class="big">{{ p.count }}</span><span class="of">of {{ p.target }}</span>
+<span class="badge {{ p.direction }}">{{ p.change }}</span>
+</div>
+<div class="track" role="progressbar" aria-label="{{ p.label }}" aria-valuemin="0" aria-valuemax="{{ p.target }}" aria-valuenow="{{ p.count }}"><div class="fill" style="width: {{ p.percent }}%"></div></div>
+{% endmacro %}
+{% macro today_item(a) %}<li><span class="today-company">{{ a.company }}</span> <span class="today-sep">·</span> <span class="today-position">{{ a.position }}</span></li>{% endmacro %}
 {% macro chip(c) %}<li class="chip {{ c.kind }}"><span class="chip-kind">{{ c.label }}</span> <span class="chip-text">{{ c.text }}</span></li>{% endmacro %}
 {% macro weekly_svg(c) %}
 <svg class="chart {{ c.shape }}" viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="Applications per week">
@@ -57,12 +65,32 @@
 {% endfor %}
 </section>
 
+<section id="today" class="card"><h2>Today</h2>
+{{ progress(day.progress) }}
+{% if day.shown %}
+<ul class="today-list">
+{% for a in day.shown %}
+{{ today_item(a) }}
+{% endfor %}
+</ul>
+{% if day.more %}
+<details class="more"><summary>+{{ day.more|length }} more</summary>
+<ul class="today-list">
+{% for a in day.more %}
+{{ today_item(a) }}
+{% endfor %}
+</ul></details>
+{% endif %}
+{% else %}
+<p class="calm">No applications yet today.</p>
+{% endif %}
+{% if day.updates %}
+<p class="sub updates">{{ day.updates }}</p>
+{% endif %}
+</section>
+
 <section id="this-week" class="card"><h2>This week</h2>
-<div class="progress-head">
-<span class="big">{{ week.applications }}</span><span class="of">of {{ week.target }}</span>
-<span class="badge {{ week.direction }}">{{ week.change }}</span>
-</div>
-<div class="track" role="progressbar" aria-label="Applications this week toward the weekly target" aria-valuemin="0" aria-valuemax="{{ week.target }}" aria-valuenow="{{ week.applications }}"><div class="fill" style="width: {{ week.percent }}%"></div></div>
+{{ progress(week.progress) }}
 <p class="sub">{{ week.responses }} · {{ week.in_progress }} in progress</p>
 </section>
 

@@ -9,6 +9,7 @@ from reporting import derive
 from reporting.derive import AWAITING, IN_PROGRESS, NO_NEWS, REJECTED, Facts
 from reporting.load import Settings
 
+TODAY_SHOWN = 8  # today's applications listed before "+N more"
 ATTENTION_SHOWN = 5  # lines in "Needs your attention" before "+N more"
 MANY_SHOWN = 3  # "many applications" lines shown on the page before "+N more"
 TOP_COMPANIES = 10
@@ -37,19 +38,40 @@ def rate_text(r: int, n: int, min_group: int) -> str:
     return f"{r} of {n} ({percent(r, n)})" if n >= min_group else f"{r} of {n}"
 
 
-def change_text(n: int, last: int) -> str:
+def change_text(n: int, last: int, period: str = "last week") -> str:
     if n > last:
-        return f"↑ {n - last} from last week"
+        return f"↑ {n - last} from {period}"
     if n < last:
-        return f"↓ {last - n} from last week"
-    return "same as last week"
+        return f"↓ {last - n} from {period}"
+    return f"same as {period}"
 
 
 def _applied_between(rows, first: date, last: date) -> list[Facts]:
     return [f for f in rows if f.job.applied and first <= f.job.applied <= last]
 
 
-# ---------- 1-2. summary and this week ----------
+# ---------- 1-3. summary, today and this week ----------
+
+@dataclass
+class Today:
+    applications: list[Facts]  # Date = today, most recently added (highest row) first
+    yesterday: int  # applications with Date = yesterday
+    updates: list[Facts]  # Last Updated = today, with a Stage or Outcome; sheet order
+
+
+def today_facts(rows: list[Facts], today: date) -> Today:
+    return Today(applications=sorted((f for f in rows if f.job.applied == today), key=lambda f: -f.job.row),
+                 yesterday=sum(f.job.applied == today - timedelta(days=1) for f in rows),
+                 updates=[f for f in rows if f.job.last_updated == today and (f.job.stage or f.job.outcome)])
+
+
+def status_updates_text(updates: list[Facts]) -> str | None:
+    """'Status updates today: Acme (Interview), Zen (Rejected).' (the Stage, else the Outcome); None if none."""
+    if not updates:
+        return None
+    return "Status updates today: " + ", ".join(f"{f.job.company} ({f.job.stage or f.job.outcome})"
+                                                for f in updates) + "."
+
 
 @dataclass
 class ThisWeek:
@@ -84,14 +106,16 @@ def best_source(rows: list[Facts], settings: Settings) -> tuple[str, int, int] |
 
 
 def summary(rows: list[Facts], settings: Settings, today: date) -> list[str]:
-    """The three plain sentences; one with nothing to say is left out."""
+    """The four plain sentences; one with nothing to say is left out (never the first two)."""
     week = this_week(rows, today)
     if week.new_responses:
         names = ", ".join(f"{f.job.company} ({f.job.stage})" for f in week.new_responses)
         responses = f"{plural(len(week.new_responses), 'new response')}: {names}"
     else:
         responses = "No new responses"
-    sentences = [f"This week: {plural(week.applications, 'application')} (target {settings.weekly_target}, "
+    sentences = [f"Today: {plural(len(today_facts(rows, today).applications), 'application')} "
+                 f"(target {settings.daily_target}).",
+                 f"This week: {plural(week.applications, 'application')} (target {settings.weekly_target}, "
                  f"last week {week.last_week}). {responses}."]
     if week.in_progress or week.awaiting:
         sentences.append(f"{week.in_progress} in progress and {week.awaiting} awaiting reply.")

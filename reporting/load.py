@@ -5,6 +5,7 @@ found by header name exactly as apply.py and find.py find them. Neither saves an
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, fields
 from datetime import date
 from pathlib import Path
@@ -20,6 +21,7 @@ import tracker
 class Settings:
     """report.yaml; every key left out keeps the default below (the same values as the file in git)."""
     weekly_target: int = 70
+    daily_target: int | None = None  # None: weekly_target / 7, rounded up
     follow_up_days: int = 14
     no_reply_days: int = 30
     many_applications: int = 5
@@ -40,6 +42,10 @@ class Settings:
         "Clearance/citizenship": ["clearance", "citizen"],
         "Referral": ["referral", "referred"],
     })
+
+    def __post_init__(self):
+        if self.daily_target is None:
+            self.daily_target = math.ceil(self.weekly_target / 7)
 
 
 def load_settings(path) -> Settings:
