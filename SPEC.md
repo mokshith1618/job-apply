@@ -264,7 +264,7 @@ lookups, saving the full JD text.
 | E | Date | today as a real date, number format `M/d/yyyy` |
 | F | Outcome | `Applied` (dropdown: Applied, Rejected, Awaiting reply, In progress) |
 | G | Stage | apply.py leaves it empty (blank = no news yet); find.py sets it (dropdown: Online Assessment, Initial Screening, Interview) |
-| H | Last Updated | date of the last real status change (see "Milestone 8"), `M/d/yyyy`, same date check as E; apply.py writes today (same as Date); old rows blank |
+| H | Last Updated | date of the last real status change, or a date I set in find.py (see "Milestone 8"), `M/d/yyyy`, same date check as E; apply.py writes today (same as Date); old rows blank |
 | I | Remarks | apply.py leaves it empty; find.py appends dated notes (milestone 7) |
 | J, K | Experience, Key Skills | leave empty |
 
@@ -514,7 +514,8 @@ Update 2 rows: In progress · Online Assessment · dated 11/01/2026? [Y/n]
   `Enter = keep` then, and Enter asks again). With several rows picked, required if any of
   them has no Stage.
 - **Applied / Awaiting reply:** Stage question asked; Enter keeps each row's own Stage.
-- Enter at both questions and no note = nothing to change, back to the row prompt.
+- Enter at both questions: the note and the date question are still asked (see "Update date
+  and confirm"); Enter at all four = `Nothing changed.`, back to the row prompt.
 - The confirm line names exactly what will be written: the Outcome, the Stage and
   `note "..."`, joined by ` · `, leaving out what is kept.
 - The date question and the confirm: see "Update date and confirm" below.
@@ -523,33 +524,49 @@ Update 2 rows: In progress · Online Assessment · dated 11/01/2026? [Y/n]
 
 ### Last Updated
 
-- `find.py` writes the update's date (default today, see below) to **Last Updated** on a row only when, on that row:
-  - Stage changes to a different value, or
-  - Outcome changes to Awaiting reply or Rejected (from something else).
+- `find.py` writes the update's date (default today, see below) to **Last Updated** on a row when,
+  on that row, Outcome or Stage changes to a different value (any value, including In progress
+  and Applied).
 
-  A note alone, Outcome changing to Applied or In progress, or picking the value the row
-  already has does not change Last Updated. (Excel as a real date with `M/d/yyyy`; Sheet as a
-  date value.) It is checked against the row as it is when the write happens.
+  Picking the value the row already has does not count, and a note alone does not change Last
+  Updated. (Excel as a real date with `M/d/yyyy`; Sheet as a date value.) It is checked against
+  the row as it is when the write happens.
+- When Outcome and Stage are both kept, a date typed at `Date for Last Updated` is written to
+  Last Updated on the picked rows (see below).
+- (Replaces the earlier rule that only a Stage change or a change to Awaiting reply / Rejected
+  moved Last Updated.)
 - `apply.py` writes today's date to Last Updated on the new row (same as Date).
 - Never written for rows I didn't change. Old rows stay blank.
 
 ### Update date and confirm (find.py)
 
-- After the note: `Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday): `
-- Enter = today. Also accepted: `yesterday`, `M/D` (current year), `M/D/YYYY`, `YYYY-MM-DD`;
-  any case, surrounding spaces ignored. Anything else says which formats work and asks again.
+After the note, one of two date questions, always asked:
+
+- **Outcome or Stage changed** (on at least one picked row, checked against the rows as shown):
+  `Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday): `
+  Enter = today. The date goes to Last Updated (rows that change) and to the `MM/DD/YYYY`
+  prefix of the Remarks note, if any.
+- **Outcome and Stage both kept** (Enter at both, or values every picked row already has):
+  `Date for Last Updated (Enter = keep current, or MM/DD, MM/DD/YYYY, yesterday): `
+  Enter keeps Last Updated as it is. A typed date is written to Last Updated on the picked rows.
+  A note gets the typed date as its prefix, or today after Enter.
+- Accepted: `yesterday`, `M/D` (current year), `M/D/YYYY`, `YYYY-MM-DD`; any case, surrounding
+  spaces ignored. Anything else says which formats work and asks again.
 - A future date, or a date before the applied **Date** of any picked row (a Date that can't be
   read is not checked), is rejected with the reason and asked again.
-- Asked only when something dated will be written: a note is given, or Last Updated changes on
-  at least one picked row under the rules above (checked against the rows as shown). Otherwise
-  it is skipped and nothing dated is written.
-- The date is used for Last Updated and for the `MM/DD/YYYY` prefix of the Remarks note, in
-  Excel and the Sheet.
-- Pending update files keep the date (the existing `noted_on` field), so a pending update is
-  written later with that date. Old pending files already hold the day they were saved there.
-- Confirm: `Update 2 rows: Rejected · dated 11/01/2026? [Y/n]` (` · dated ...` left out when the
-  date is today). Enter or `y` writes, `n` writes nothing (`Nothing changed.`), anything else
-  asks again; any case.
+- Enter at Outcome, Stage, note and date: `Nothing changed.`, back to the row prompt.
+- Written the same way to Excel and the Sheet. Pending update files keep the date (`noted_on`)
+  and whether Last Updated is set without a status change (`set_last_updated`), so a pending
+  update is written later as it was asked. Old pending files have no `set_last_updated` (= no)
+  and already hold the day they were saved as `noted_on`.
+
+Confirm, naming everything that will be written, `[Y/n]`: Enter or `y` writes, `n` writes
+nothing (`Nothing changed.`), anything else asks again; any case.
+- Changed: `Update 2 rows: Rejected · note "..." · dated 11/01/2026? [Y/n]` (` · dated ...`
+  left out when the date is today).
+- Kept, date only: `Set Last Updated to 09/10/2026 on 1 row? [Y/n]`
+- Kept, note only: `Update 1 row: note "recruiter call"? [Y/n]`
+- Kept, note and date: `Update 1 row: note "..." · Last Updated 09/10/2026? [Y/n]`
 
 ### Done when
 

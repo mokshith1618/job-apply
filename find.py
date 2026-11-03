@@ -4,7 +4,8 @@
 
 Finds every row whose Company, Position or URL contains <text>, prints them grouped by company,
 and for the rows I pick asks Outcome, then Stage (Enter keeps either), then an optional dated
-note for Remarks, then the date of the update when something dated is written (Enter = today).
+note for Remarks, then a date: of the update when Outcome or Stage changes (Enter = today), or for
+Last Updated alone when both are kept (Enter = keep it).
 Rejected skips the Stage question; In progress needs a Stage on every row.
 """
 from __future__ import annotations
@@ -43,6 +44,7 @@ STAGE_PROMPT = f"Stage:   {_menu(tracker.STAGES)}  (Enter = keep) "
 STAGE_REQUIRED_PROMPT = f"Stage:   {_menu(tracker.STAGES)} "
 NOTE_PROMPT = "Note for Remarks (optional): "
 DATE_PROMPT = "Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday): "
+KEEP_DATE_PROMPT = "Date for Last Updated (Enter = keep current, or MM/DD, MM/DD/YYYY, yesterday): "
 DATE_FORMATS = "Use MM/DD, MM/DD/YYYY, YYYY-MM-DD or yesterday."
 
 
@@ -196,12 +198,10 @@ def ask_change(input_fn, rows) -> tuple[str, str]:
     return outcome, stage
 
 
-def _dated(rows, outcome: str, stage: str, note: str) -> bool:
-    """Will the update write a date? A note does; so does a change that moves Last Updated on a picked row."""
-    if note:
-        return True
+def _changes(rows, outcome: str, stage: str) -> bool:
+    """Does Outcome or Stage change on any picked row (as shown)? Picking the value a row has doesn't count."""
     probe = tracker.OutcomeUpdate("", "", [], "", 0, outcome, "", date.min, stage)
-    return any(probe.moves_last_updated(values["Outcome"], values["Stage"]) for _, values, _ in rows)
+    return any(probe.changes_status(values["Outcome"], values["Stage"]) for _, values, _ in rows)
 
 
 def _too_early(day: date, rows) -> str | None:
@@ -214,12 +214,12 @@ def _too_early(day: date, rows) -> str | None:
     return None
 
 
-def ask_date(input_fn, rows, today: date) -> date:
-    """The date of this update: Enter = today; not in the future, not before any picked row's applied Date."""
+def ask_date(input_fn, rows, today: date, prompt: str = DATE_PROMPT) -> date | None:
+    """A date not in the future and not before any picked row's applied Date; None at Enter."""
     while True:
-        answer = _answer(input_fn, DATE_PROMPT)
+        answer = _answer(input_fn, prompt)
         if not answer:
-            return today
+            return None
         day = parse_update_date(answer, today)
         if day is None:
             print(DATE_FORMATS)
@@ -295,17 +295,29 @@ def _loop(sheet: apply.Sheet, tracker_path: Path, text: str, input_fn, today: da
         rows = [shown[i - 1] for i in picked]
         outcome, stage = ask_change(input_fn, rows)
         note = input_fn(NOTE_PROMPT).strip()
-        if not (outcome or stage or note):
-            print("Nothing to change.\n")
-            continue
-        day = ask_date(input_fn, rows, today) if _dated(rows, outcome, stage, note) else today
         n = len(rows)
-        change = tracker.describe_change(outcome, stage, note)
-        dated = f" · dated {day:%m/%d/%Y}" if day != today else ""
-        if not ask_yes(input_fn, f"Update {n} row{'s' if n > 1 else ''}: {change}{dated}? [Y/n] "):
+        rows_text = f"{n} row{'s' if n > 1 else ''}"
+        if _changes(rows, outcome, stage):
+            day = ask_date(input_fn, rows, today) or today
+            set_last_updated = False
+            dated = f" · dated {day:%m/%d/%Y}" if day != today else ""
+            confirm = f"Update {rows_text}: {tracker.describe_change(outcome, stage, note)}{dated}? [Y/n] "
+        else:  # Outcome and Stage kept: the date question can set Last Updated on its own
+            outcome = stage = ""
+            typed = ask_date(input_fn, rows, today, KEEP_DATE_PROMPT)
+            if not (note or typed):
+                print("Nothing changed.\n")
+                continue
+            day, set_last_updated = typed or today, typed is not None
+            if note:
+                confirm = f"Update {rows_text}: {tracker.describe_change('', '', note, typed)}? [Y/n] "
+            else:
+                confirm = f"Set Last Updated to {day:%m/%d/%Y} on {rows_text}? [Y/n] "
+        if not ask_yes(input_fn, confirm):
             print("Nothing changed.\n")
             continue
-        updates = [tracker.OutcomeUpdate.for_row(*row, outcome=outcome, note=note, noted_on=day, stage=stage)
+        updates = [tracker.OutcomeUpdate.for_row(*row, outcome=outcome, note=note, noted_on=day, stage=stage,
+                                                 set_last_updated=set_last_updated)
                    for row in rows]
         _write(sheet, tracker_path, updates, input_fn)
         print()
