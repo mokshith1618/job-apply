@@ -158,13 +158,31 @@ Rows to update (e.g. 1,2 or 1-3 or all; Enter = done):
 Outcome: 1 Applied  2 In progress  3 Awaiting reply  4 Rejected  (Enter = keep)
 Stage:   1 Online Assessment  2 Initial Screening  3 Interview  (Enter = keep)
 Note for Remarks (optional):
-Update 1 row: In progress · Online Assessment? [y/N]
+Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday):
+Update 1 row: In progress · Online Assessment · dated 11/01/2026? [Y/n]
 ```
 
 Rejected skips the Stage question (the Stage stays, to show how far it got). In progress
 needs a Stage, so Enter doesn't keep it when a picked row has none. A note is added to
-Remarks with today's date, after what's already there. Writes go to the Google Sheet, then
-the Excel file, with a backup first, like `apply.py`.
+Remarks with the update's date, after what's already there.
+
+Last Updated is written when Outcome or Stage changes to a different value (any value);
+picking what a row already has, or a note alone, doesn't count. The date question after the
+note comes in two versions:
+
+- **Outcome or Stage changed:** `Date of this update (Enter = today, ...)`. The date goes to
+  Last Updated and to the note's date prefix.
+- **Both kept** (Enter at both): `Date for Last Updated (Enter = keep current, ...)`. A typed
+  date sets Last Updated on the picked rows (`Set Last Updated to 09/10/2026 on 1 row? [Y/n]`)
+  and dates the note; Enter leaves Last Updated alone and dates the note today. Enter at
+  everything = `Nothing changed.`
+
+Dates: `yesterday`, `11/01`, `11/01/2026` or `2026-11-01`. A future date, or one before a picked
+job's applied Date, is refused and asked again. An update that waits in a pending file keeps
+its date.
+
+The confirm defaults to yes: Enter or `y` writes, `n` writes nothing. Writes go to the Google
+Sheet, then the Excel file, with a backup first, like `apply.py`.
 
 ## Report page (`report.py`)
 

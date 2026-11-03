@@ -489,10 +489,11 @@ def run_find(tracker_file, ws, script, text="example labs", extra=()):
 
 def test_update_goes_to_sheet_then_excel_and_table_shown_again(dup_tracker, capsys):
     ws = known_sheet()
-    script = Script("1", "4", "Phone screen", "y", "")
+    script = Script("1", "4", "Phone screen", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
     assert script.prompts == [find.ROWS_PROMPT, find.OUTCOME_PROMPT, find.NOTE_PROMPT,  # Rejected: no Stage question
-                              'Update 1 row: Rejected · note "Phone screen"? [y/N] ', find.ROWS_PROMPT]
+                              find.DATE_PROMPT, 'Update 1 row: Rejected · note "Phone screen"? [Y/n] ',
+                              find.ROWS_PROMPT]
     assert at(ws, 2, "Outcome", "Stage", "Remarks") == ["Rejected", "", "10/21/2026 Phone screen"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}", f"I{KNOWN_ROW}") == \
         ["Rejected", None, "10/21/2026 Phone screen"]
@@ -505,26 +506,36 @@ def test_update_goes_to_sheet_then_excel_and_table_shown_again(dup_tracker, caps
 
 def test_invalid_answers_are_asked_again(dup_tracker):
     ws = known_sheet()
-    script = Script("x", "5", "1", "offer", "9", "3", "x", "1", "", "y", "")
+    script = Script("x", "5", "1", "offer", "9", "3", "x", "1", "", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
     assert script.prompts[:8] == [find.ROWS_PROMPT] * 3 + [find.OUTCOME_PROMPT] * 3 + [find.STAGE_PROMPT] * 2
-    assert script.prompts[9] == "Update 1 row: Awaiting reply · Online Assessment? [y/N] "
+    assert script.prompts[10] == "Update 1 row: Awaiting reply · Online Assessment? [Y/n] "
     assert at(ws, 2, "Outcome", "Stage") == ["Awaiting reply", "Online Assessment"]
 
 
 def test_interview_then_rejected_keeps_the_stage(dup_tracker):
     ws = known_sheet()
-    assert run_find(dup_tracker, ws, Script("1", "3", "3", "", "y", "1", "rejected", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "3", "3", "", "", "y", "1", "rejected", "", "", "y", "")) == 0
     assert at(ws, 2, "Outcome", "Stage") == ["Rejected", "Interview"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["Rejected", "Interview"]
 
 
-def test_anything_but_y_writes_nothing(dup_tracker, capsys):
+def test_n_at_the_confirm_writes_nothing(dup_tracker, capsys):
     ws = known_sheet()
     before = dup_tracker.read_bytes()
-    assert run_find(dup_tracker, ws, Script("1", "4", "note", "n", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "4", "note", "", "N", "")) == 0
     assert ws.updates == [] and dup_tracker.read_bytes() == before
     assert "Nothing changed." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("yes", ["", "y", "Y"])
+def test_confirm_defaults_to_yes_and_asks_again_on_anything_else(dup_tracker, yes):
+    ws = known_sheet()
+    script = Script("1", "4", "", "", "yes", "x", yes, "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4:7] == ["Update 1 row: Rejected? [Y/n] "] * 3
+    assert at(ws, 2, "Outcome") == ["Rejected"]
+    assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]
 
 
 def test_no_matches(dup_tracker, capsys):
@@ -550,14 +561,14 @@ def test_sheet_down_at_write_keeps_update_pending_then_flushes(dup_tracker, caps
         raise requests.exceptions.ConnectionError("offline")
 
     ws.batch_update = offline
-    assert run_find(dup_tracker, ws, Script("1", "4", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "4", "", "", "y", "")) == 0
     pending = dup_tracker.parent / "pending_sheet_updates.json"
     assert [u.outcome for u in tracker.load_pending_updates(pending)] == ["Rejected"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]  # Excel still written
     assert "pending_sheet_updates.json" in capsys.readouterr().out
 
     ws.batch_update = real_update  # back online: the waiting update goes first, then the new one
-    assert run_find(dup_tracker, ws, Script("1", "3", "1", "", "y", "")) == 0
+    assert run_find(dup_tracker, ws, Script("1", "3", "1", "", "", "y", "")) == 0
     assert [(c, v) for c, v in ws.updates if c in ("F2", "G2")] == \
         [("F2", "Rejected"), ("F2", "Awaiting reply"), ("G2", "Online Assessment")]
     assert not pending.exists()
@@ -571,7 +582,7 @@ def test_sheet_unreachable_at_start_searches_excel(dup_tracker, tmp_path, monkey
         raise SheetUnavailable("offline")
 
     monkeypatch.setattr(sheet_tracker, "open_sheet", unreachable)
-    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "3", "3", "", "y", ""),
+    assert find.main(["example", "labs", "--config", str(config)], input_fn=Script("1", "3", "3", "", "", "y", ""),
                      today=NOTE_DAY) == 0
     out = capsys.readouterr().out
     assert "Google Sheet unavailable: offline" in out and "Searching tracker.xlsx instead" in out
@@ -595,9 +606,9 @@ def locked_once(monkeypatch, times=1):
 
 def test_excel_open_asks_to_close_it_then_writes(dup_tracker, monkeypatch):
     locked_once(monkeypatch)
-    script = Script("1", "4", "", "y", "", "")
+    script = Script("1", "4", "", "", "y", "", "")
     assert run_find(dup_tracker, None, script, extra=["--no-sheet"]) == 0
-    assert "Close Excel, then press Enter to retry, s = leave it pending" in script.prompts[4]
+    assert "Close Excel, then press Enter to retry, s = leave it pending" in script.prompts[5]
     assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Rejected"]
     assert not tracker.pending_updates_path_for(dup_tracker).exists()
 
@@ -608,10 +619,11 @@ def test_excel_open_s_keeps_update_pending_and_apply_writes_it_later(dup_tracker
     import apply
 
     real_save = locked_once(monkeypatch, times=99)
-    assert run_find(dup_tracker, None, Script("1", "4", "Same day rejection", "y", "s", ""),
+    assert run_find(dup_tracker, None, Script("1", "4", "Same day rejection", "yesterday", "y", "s", ""),
                     extra=["--no-sheet"]) == 0
     pending = tracker.pending_updates_path_for(dup_tracker)
-    assert tracker.load_pending_updates(pending)[0].note == "Same day rejection"
+    saved = tracker.load_pending_updates(pending)[0]
+    assert (saved.note, saved.noted_on) == ("Same day rejection", date(2026, 10, 20))
     assert cells(dup_tracker, f"F{KNOWN_ROW}") == ["Applied"]
     assert "Update kept in pending_updates.json" in capsys.readouterr().out
 
@@ -619,7 +631,8 @@ def test_excel_open_s_keeps_update_pending_and_apply_writes_it_later(dup_tracker
     assert apply.main(["https://job-boards.greenhouse.io/acme/jobs/1", "--tracker", str(dup_tracker),
                        "--no-sheet"], input_fn=Script(""), fetch=fetch_ok, today=NOTE_DAY) == 0
     assert cells(dup_tracker, "A898", f"F{KNOWN_ROW}", f"I{KNOWN_ROW}") == \
-        ["Acme Robotics", "Rejected", "10/21/2026 Same day rejection"]
+        ["Acme Robotics", "Rejected", "10/20/2026 Same day rejection"]
+    assert cells(dup_tracker, f"H{KNOWN_ROW}")[0].date() == date(2026, 10, 20)  # the update's date, not apply's
     assert not pending.exists()
 
 
@@ -659,10 +672,11 @@ LAST_UPDATED_CASES = [
     pytest.param(("Applied", ""), ("Rejected", "", ""), True, id="to rejected"),
     pytest.param(("In progress", "Interview"), ("Awaiting reply", "", ""), True, id="to awaiting reply"),
     pytest.param(("Applied", ""), ("", "", "Recruiter call"), False, id="note alone"),
-    pytest.param(("Awaiting reply", "Interview"), ("In progress", "", ""), False, id="to in progress"),
-    pytest.param(("Rejected", "Interview"), ("Applied", "", ""), False, id="to applied"),
+    pytest.param(("Awaiting reply", "Interview"), ("In progress", "", ""), True, id="to in progress"),
+    pytest.param(("Rejected", "Interview"), ("Applied", "", ""), True, id="to applied"),
     pytest.param(("Awaiting reply", "Interview"), ("Awaiting reply", "Interview", "x"), False, id="same values"),
     pytest.param(("Rejected", ""), ("Rejected", "", ""), False, id="same outcome"),
+    pytest.param(("Awaiting reply", "Interview"), ("", "Interview", ""), False, id="same stage"),
 ]
 
 
@@ -757,10 +771,10 @@ def test_old_pending_updates_still_apply(dup_tracker):
 
 def test_in_progress_requires_a_stage_when_the_row_has_none(dup_tracker):
     ws = known_sheet()
-    script = Script("1", "2", "", "x", "2", "", "y", "")
+    script = Script("1", "2", "", "x", "2", "", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
-    assert script.prompts[1:7] == [find.OUTCOME_PROMPT] + [find.STAGE_REQUIRED_PROMPT] * 3 + \
-        [find.NOTE_PROMPT, "Update 1 row: In progress · Initial Screening? [y/N] "]
+    assert script.prompts[1:8] == [find.OUTCOME_PROMPT] + [find.STAGE_REQUIRED_PROMPT] * 3 + \
+        [find.NOTE_PROMPT, find.DATE_PROMPT, "Update 1 row: In progress · Initial Screening? [Y/n] "]
     assert at(ws, 2, "Outcome", "Stage", "Last Updated") == ["In progress", "Initial Screening", "2026-10-21"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"G{KNOWN_ROW}") == ["In progress", "Initial Screening"]
 
@@ -768,45 +782,264 @@ def test_in_progress_requires_a_stage_when_the_row_has_none(dup_tracker):
 def test_in_progress_keeps_the_stage_when_every_row_has_one(dup_tracker):
     ws = known_sheet()
     ws.values[1] += ["Interview"]
-    script = Script("1", "2", "", "", "y", "")
+    script = Script("1", "2", "", "", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
-    assert script.prompts[2] == find.STAGE_PROMPT and script.prompts[4] == "Update 1 row: In progress? [y/N] "
-    assert at(ws, 2, "Outcome", "Stage", "Last Updated") == ["In progress", "Interview", ""]
+    assert script.prompts[2] == find.STAGE_PROMPT
+    assert script.prompts[4:6] == [find.DATE_PROMPT, "Update 1 row: In progress? [Y/n] "]
+    assert at(ws, 2, "Outcome", "Stage", "Last Updated") == ["In progress", "Interview", "2026-10-21"]
 
 
 def test_in_progress_stage_required_if_any_picked_row_has_none(dup_tracker):
     ws = known_sheet()
     ws.values[1] += ["Interview"]  # Example Labs has a Stage, Other Co doesn't
-    script = Script("all", "in progress", "", "online assessment", "", "y", "")
+    script = Script("all", "in progress", "", "online assessment", "", "", "y", "")
     assert run_find(dup_tracker, ws, script, text="engineer") == 0
     assert script.prompts[2:4] == [find.STAGE_REQUIRED_PROMPT] * 2
-    assert script.prompts[5] == "Update 2 rows: In progress · Online Assessment? [y/N] "
+    assert script.prompts[6] == "Update 2 rows: In progress · Online Assessment? [Y/n] "
     assert at(ws, 2, "Stage") == at(ws, 3, "Stage") == ["Online Assessment"]
 
 
-def test_enter_at_both_questions_and_no_note_changes_nothing(dup_tracker, capsys):
+def test_enter_at_outcome_stage_note_and_date_changes_nothing(dup_tracker, capsys):
     ws = known_sheet()
     before = dup_tracker.read_bytes()
-    script = Script("1", "", "", "", "")
+    script = Script("1", "", "", "", "", "")
     assert run_find(dup_tracker, ws, script) == 0
     assert script.prompts == [find.ROWS_PROMPT, find.OUTCOME_PROMPT, find.STAGE_PROMPT, find.NOTE_PROMPT,
-                              find.ROWS_PROMPT]
+                              find.KEEP_DATE_PROMPT, find.ROWS_PROMPT]
     assert ws.updates == [] and dup_tracker.read_bytes() == before
-    assert "Nothing to change." in capsys.readouterr().out
+    assert "Nothing changed." in capsys.readouterr().out
 
 
-def test_note_alone_keeps_outcome_stage_and_last_updated(dup_tracker):
+def test_note_alone_keeps_outcome_stage_and_last_updated(dup_tracker):  # example c
     ws = known_sheet()
-    script = Script("1", "", "", "Recruiter call", "y", "")
+    script = Script("1", "", "", "Recruiter call", "", "y", "")
     assert run_find(dup_tracker, ws, script) == 0
-    assert script.prompts[4] == 'Update 1 row: note "Recruiter call"? [y/N] '
+    assert script.prompts[4:6] == [find.KEEP_DATE_PROMPT, 'Update 1 row: note "Recruiter call"? [Y/n] ']
     assert at(ws, 2, "Outcome", "Stage", "Last Updated", "Remarks") == ["Applied", "", "", "10/21/2026 Recruiter call"]
     assert cells(dup_tracker, f"F{KNOWN_ROW}", f"H{KNOWN_ROW}", f"I{KNOWN_ROW}") == \
         ["Applied", None, "10/21/2026 Recruiter call"]
 
 
 def test_update_report_names_what_changed(dup_tracker, capsys):
-    assert run_find(dup_tracker, known_sheet(), Script("1", "3", "1", "OA done", "y", "")) == 0
+    assert run_find(dup_tracker, known_sheet(), Script("1", "3", "1", "OA done", "", "y", "")) == 0
     out = capsys.readouterr().out
     assert 'Updated row 2 in the Google Sheet: Example Labs, Inc. - Software Engineer - Python -> ' \
         'Awaiting reply · Online Assessment · note "OA done"' in out
+
+
+# ---------- the date of an update ----------
+
+TODAY = date(2026, 11, 2)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("11/01", date(2026, 11, 1)),
+    ("1/5", date(2026, 1, 5)),
+    ("11/01/2026", date(2026, 11, 1)),
+    ("3/7/2025", date(2025, 3, 7)),
+    ("2026-11-01", date(2026, 11, 1)),
+    ("2026-1-5", date(2026, 1, 5)),
+    ("yesterday", date(2026, 11, 1)),
+    ("  YESTERDAY ", date(2026, 11, 1)),
+    (" 11/01 ", date(2026, 11, 1)),
+    ("13/40", None),
+    ("2/30/2026", None),
+    ("today", None),
+    ("11-01", None),
+    ("nov 1", None),
+])
+def test_parse_update_date(text, expected):
+    assert find.parse_update_date(text, TODAY) == expected
+
+
+def test_date_prompt_text():
+    assert find.DATE_PROMPT == "Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday): "
+
+
+def test_enter_at_the_date_question_is_today_and_the_confirm_leaves_the_date_out(dup_tracker):
+    ws = known_sheet()
+    script = Script("1", "4", "Phone screen", "", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4] == 'Update 1 row: Rejected · note "Phone screen"? [Y/n] '
+    assert at(ws, 2, "Last Updated", "Remarks") == ["2026-10-21", "10/21/2026 Phone screen"]
+
+
+def test_given_date_goes_to_last_updated_and_remarks_in_excel_and_sheet(dup_tracker):
+    ws = known_sheet()
+    script = Script("1", "4", "Phone screen", "10/19", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4] == 'Update 1 row: Rejected · note "Phone screen" · dated 10/19/2026? [Y/n] '
+    assert at(ws, 2, "Outcome", "Last Updated", "Remarks") == ["Rejected", "2026-10-19", "10/19/2026 Phone screen"]
+    outcome, last, remarks = cells(dup_tracker, f"F{KNOWN_ROW}", f"H{KNOWN_ROW}", f"I{KNOWN_ROW}")
+    assert (outcome, last.date(), remarks) == ("Rejected", date(2026, 10, 19), "10/19/2026 Phone screen")
+
+
+def test_each_date_format_is_used_for_the_update(dup_tracker):
+    for answer, shown in (("yesterday", "10/20/2026"), ("10/18/2026", "10/18/2026"), ("2026-10-17", "10/17/2026")):
+        ws = known_sheet()
+        script = Script("1", "4", "", answer, "y", "")
+        assert run_find(dup_tracker, ws, script) == 0
+        assert script.prompts[4] == f"Update 1 row: Rejected · dated {shown}? [Y/n] "
+        assert at(ws, 2, "Last Updated") == [f"{shown[6:]}-{shown[:2]}-{shown[3:5]}"]
+
+
+def test_future_unreadable_and_before_applied_dates_are_asked_again(dup_tracker, capsys):
+    ws = known_sheet()  # Example Labs applied 6/20/2026 in the Sheet
+    script = Script("1", "4", "", "10/22", "someday", "6/19", "6/20", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[3:7] == [find.DATE_PROMPT] * 4
+    out = capsys.readouterr().out
+    assert "10/22/2026 is after today." in out
+    assert find.DATE_FORMATS in out
+    assert "06/19/2026 is before Example Labs, Inc. - Software Engineer - Python was applied (06/20/2026)." in out
+    assert at(ws, 2, "Last Updated") == ["2026-06-20"]
+
+
+def test_date_checked_against_every_picked_row(dup_tracker, capsys):
+    ws = known_sheet()  # Example Labs 6/20/2026, Other Co 7/1/2026
+    script = Script("all", "4", "", "6/25", "7/1", "", "")
+    assert run_find(dup_tracker, ws, script, text="engineer") == 0
+    assert "06/25/2026 is before Other Co - Data Engineer was applied (07/01/2026)." in capsys.readouterr().out
+    assert at(ws, 2, "Last Updated") == at(ws, 3, "Last Updated") == ["2026-07-01"]
+
+
+def test_both_date_question_texts():
+    assert find.KEEP_DATE_PROMPT == \
+        "Date for Last Updated (Enter = keep current, or MM/DD, MM/DD/YYYY, yesterday): "
+
+
+@pytest.mark.parametrize("outcome, stage", [
+    pytest.param("1", "3", id="same outcome and stage"),
+    pytest.param("applied", "", id="same outcome, stage kept"),
+])
+def test_picking_the_values_a_row_has_is_not_a_change(dup_tracker, capsys, outcome, stage):
+    ws = known_sheet()
+    ws.values[1] += ["Interview"]
+    before = dup_tracker.read_bytes()
+    script = Script("1", outcome, stage, "", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4] == find.KEEP_DATE_PROMPT
+    assert ws.updates == [] and dup_tracker.read_bytes() == before
+    assert "Nothing changed." in capsys.readouterr().out
+
+
+def awaiting_oa_sheet():
+    ws = known_sheet()
+    ws.values[1][5:] = ["Awaiting reply", "Online Assessment"]
+    return ws
+
+
+def test_example_a_second_assessment_moves_to_in_progress(dup_tracker):
+    set_cells(dup_tracker, **{f"F{KNOWN_ROW}": "Awaiting reply", f"G{KNOWN_ROW}": "Online Assessment"})
+    ws = awaiting_oa_sheet()
+    script = Script("1", "2", "", "2nd online assessment", "", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[2:6] == [find.STAGE_PROMPT, find.NOTE_PROMPT, find.DATE_PROMPT,
+                                   'Update 1 row: In progress · note "2nd online assessment"? [Y/n] ']
+    assert at(ws, 2, "Outcome", "Stage", "Last Updated", "Remarks") == \
+        ["In progress", "Online Assessment", "2026-10-21", "10/21/2026 2nd online assessment"]
+    outcome, stage, last, remarks = cells(dup_tracker, *(f"{c}{KNOWN_ROW}" for c in "FGHI"))
+    assert (outcome, stage, last.date(), remarks) == \
+        ("In progress", "Online Assessment", NOTE_DAY, "10/21/2026 2nd online assessment")
+
+
+def test_example_b_set_last_updated_alone(dup_tracker, capsys):
+    set_cells(dup_tracker, **{f"F{KNOWN_ROW}": "Awaiting reply"})
+    ws = known_sheet()
+    ws.values[1][5] = "Awaiting reply"
+    script = Script("1", "", "", "", "09/10", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4:6] == [find.KEEP_DATE_PROMPT, "Set Last Updated to 09/10/2026 on 1 row? [Y/n] "]
+    assert at(ws, 2, "Outcome", "Stage", "Last Updated", "Remarks") == ["Awaiting reply", "", "2026-09-10", ""]
+    assert [c for c, _ in ws.updates] == ["H2"]
+    outcome, stage, last, remarks = cells(dup_tracker, *(f"{c}{KNOWN_ROW}" for c in "FGHI"))
+    assert (outcome, stage, last.date(), remarks) == ("Awaiting reply", None, date(2026, 9, 10), None)
+    assert "Last Updated 09/10/2026" in capsys.readouterr().out  # the "Updated row" report names it
+
+
+def test_kept_status_note_and_date_both_use_the_date(dup_tracker):
+    ws = known_sheet()
+    script = Script("all", "", "", "Recruiter call", "yesterday", "", "")
+    assert run_find(dup_tracker, ws, script, text="engineer") == 0
+    assert script.prompts[5] == 'Update 2 rows: note "Recruiter call" · Last Updated 10/20/2026? [Y/n] '
+    for r in (2, 3):
+        assert at(ws, r, "Outcome", "Last Updated", "Remarks") == \
+            ["Applied", "2026-10-20", "10/20/2026 Recruiter call"]
+    last, remarks = cells(dup_tracker, f"H{KNOWN_ROW}", f"I{KNOWN_ROW}")
+    assert (last.date(), remarks) == (date(2026, 10, 20), "10/20/2026 Recruiter call")
+
+
+def test_date_only_plural_confirm_and_n_cancels(dup_tracker, capsys):
+    ws = known_sheet()
+    script = Script("all", "", "", "", "10/01", "n", "")
+    assert run_find(dup_tracker, ws, script, text="engineer") == 0
+    assert script.prompts[5] == "Set Last Updated to 10/01/2026 on 2 rows? [Y/n] "
+    assert ws.updates == [] and "Nothing changed." in capsys.readouterr().out
+
+
+def test_keep_date_question_rejects_like_the_other(dup_tracker, capsys):
+    ws = known_sheet()  # applied 6/20/2026
+    script = Script("1", "", "", "", "11/01", "6/1", "x", "6/21", "", "")
+    assert run_find(dup_tracker, ws, script) == 0
+    assert script.prompts[4:8] == [find.KEEP_DATE_PROMPT] * 4
+    out = capsys.readouterr().out
+    assert "11/01/2026 is after today." in out and find.DATE_FORMATS in out
+    assert "06/01/2026 is before Example Labs, Inc. - Software Engineer - Python was applied (06/20/2026)." in out
+    assert at(ws, 2, "Last Updated") == ["2026-06-21"]
+
+
+def test_last_updated_only_on_picked_rows_that_change(dup_tracker):
+    ws = known_sheet()
+    ws.values[2][5] = "Rejected"  # Other Co already Rejected
+    script = Script("all", "4", "", "", "", "")
+    assert run_find(dup_tracker, ws, script, text="engineer") == 0
+    assert at(ws, 2, "Last Updated") == ["2026-10-21"] and at(ws, 3, "Last Updated") == [""]
+
+
+def test_pending_date_only_update_keeps_its_date(dup_tracker):
+    ws = known_sheet()
+    real_update = ws.batch_update
+
+    def offline(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("offline")
+
+    ws.batch_update = offline
+    assert run_find(dup_tracker, ws, Script("1", "", "", "", "09/10", "", "")) == 0
+    pending = dup_tracker.parent / "pending_sheet_updates.json"
+    saved = json.loads(pending.read_text(encoding="utf-8"))[0]
+    assert (saved["noted_on"], saved["set_last_updated"]) == ("2026-09-10", True)
+    assert cells(dup_tracker, f"H{KNOWN_ROW}")[0].date() == date(2026, 9, 10)  # Excel written meanwhile
+
+    ws.batch_update = real_update
+    tracker.flush_pending_updates(
+        None, pending, update=lambda updates: sheet_tracker.update_outcome(ws, updates, dup_tracker.parent / "b"))
+    assert at(ws, 2, "Outcome", "Last Updated", "Remarks") == ["Applied", "2026-09-10", ""]
+    assert not pending.exists()
+
+
+def test_old_pending_update_without_set_last_updated_keeps_last_updated(dup_tracker):
+    pending = tracker.pending_updates_path_for(dup_tracker)
+    old = {k: v for k, v in update(outcome="", note="call").to_json().items() if k != "set_last_updated"}
+    pending.write_text(json.dumps([old]), encoding="utf-8")
+    written, _ = tracker.flush_pending_updates(dup_tracker, backup_dir=dup_tracker.parent / "b")
+    assert len(written) == 1
+    assert cells(dup_tracker, f"H{KNOWN_ROW}", f"I{KNOWN_ROW}") == [None, "10/21/2026 call"]
+
+
+def test_sheet_pending_update_keeps_its_date(dup_tracker):
+    ws = known_sheet()
+    real_update = ws.batch_update
+
+    def offline(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("offline")
+
+    ws.batch_update = offline
+    assert run_find(dup_tracker, ws, Script("1", "4", "Rejection email", "yesterday", "", "")) == 0
+    pending = dup_tracker.parent / "pending_sheet_updates.json"
+    assert json.loads(pending.read_text(encoding="utf-8"))[0]["noted_on"] == "2026-10-20"
+
+    ws.batch_update = real_update
+    assert run_find(dup_tracker, ws, Script("1", "3", "1", "", "", "y", "")) == 0  # next write: it goes first
+    assert ("H2", "2026-10-20") in ws.updates and ("H2", "2026-10-21") in ws.updates
+    assert at(ws, 2, "Remarks") == ["10/20/2026 Rejection email"]
+    assert not pending.exists()

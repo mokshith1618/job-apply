@@ -27,7 +27,6 @@ OUTCOME = "Applied"
 OUTCOMES = ("Applied", "Rejected", "Awaiting reply", "In progress")  # the Outcome dropdown
 STAGES = ("Online Assessment", "Initial Screening", "Interview")  # the Stage dropdown; blank = no news
 AWAITING = "Awaiting reply"  # the Outcome old pending files imply for a Stage
-DATED_OUTCOMES = (AWAITING, "Rejected")  # changing Outcome to one of these moves Last Updated
 FIELDS = ("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage", "Last Updated",
           "Remarks")  # required headers
 OPTIONAL = ("Experience", "Key Skills")  # left empty
@@ -230,9 +229,11 @@ def format_note(day: date, note: str, existing) -> str:
 
 # ---------- Outcome updates (find.py) ----------
 
-def describe_change(outcome: str, stage: str, note: str) -> str:
-    """What an update writes, leaving out what it keeps: 'In progress · Online Assessment · note "OA link"'."""
-    parts = [outcome, stage, f'note "{note.strip()}"' if note.strip() else ""]
+def describe_change(outcome: str, stage: str, note: str, last_updated: date | None = None) -> str:
+    """What an update writes, leaving out what it keeps: 'In progress · Online Assessment · note "OA link"'.
+    `last_updated`: a date set on its own (status kept), shown as 'Last Updated 09/10/2026'."""
+    parts = [outcome, stage, f'note "{note.strip()}"' if note.strip() else "",
+             f"Last Updated {last_updated:%m/%d/%Y}" if last_updated else ""]
     return " · ".join(p for p in parts if p)
 
 
@@ -249,6 +250,7 @@ class OutcomeUpdate:
     note: str
     noted_on: date
     stage: str = ""  # "" = leave Stage as it is
+    set_last_updated: bool = False  # write noted_on to Last Updated even though Outcome and Stage are kept
 
     def to_json(self) -> dict:
         d = asdict(self)
@@ -263,24 +265,29 @@ class OutcomeUpdate:
         return cls(**d)
 
     def describe(self) -> str:
-        return describe_change(self.outcome, self.stage, self.note)
+        return describe_change(self.outcome, self.stage, self.note,
+                               self.noted_on if self.set_last_updated else None)
 
-    def moves_last_updated(self, outcome, stage) -> bool:
-        """Last Updated changes only when Stage changes to a different value, or Outcome changes to
-        Awaiting reply or Rejected. `outcome` and `stage` are the row's values before this update."""
+    def changes_status(self, outcome, stage) -> bool:
+        """Outcome or Stage changes to a different value (any value). `outcome` and `stage` are the
+        row's values before this update."""
         def text(value):
             return "" if value is None else str(value).strip()
         stage_changed = bool(self.stage) and self.stage != text(stage)
-        outcome_dated = self.outcome in DATED_OUTCOMES and self.outcome != text(outcome)
-        return stage_changed or outcome_dated
+        outcome_changed = bool(self.outcome) and self.outcome != text(outcome)
+        return stage_changed or outcome_changed
+
+    def moves_last_updated(self, outcome, stage) -> bool:
+        """Last Updated changes when the status really changes, or when it is set on its own."""
+        return self.set_last_updated or self.changes_status(outcome, stage)
 
     @classmethod
     def for_row(cls, r: int, values: dict, urls: list[str], outcome: str, note: str,
-                noted_on: date, stage: str = "") -> "OutcomeUpdate":
+                noted_on: date, stage: str = "", set_last_updated: bool = False) -> "OutcomeUpdate":
         applied = parse_date(values["Date"])
         return cls(company=str(values["Company"] or ""), position=str(values["Position"] or ""),
                    urls=list(urls), applied=applied.isoformat() if applied else "", row=r, outcome=outcome,
-                   note=note, noted_on=noted_on, stage=stage)
+                   note=note, noted_on=noted_on, stage=stage, set_last_updated=set_last_updated)
 
 
 def _url_ids(urls) -> set[str]:
