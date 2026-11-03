@@ -439,7 +439,7 @@ Note for Remarks (optional):
 Update 2 rows to Rejected? [y/N]
 ```
 - Invalid input asks again. The status can be its number or its name (any case).
-  Anything but `y` at the confirm writes nothing.
+  The confirm is `[Y/n]` (see "Update date and confirm" in milestone 8).
 - One menu for both columns. An Outcome pick (1-3) writes **Outcome** and leaves **Stage** as
   it is (Rejected after an interview keeps `Interview`). A Stage pick (4-6) writes **Stage** and
   sets **Outcome** to `Awaiting reply`. The confirm names what I picked (`Update 2 rows to Interview?`).
@@ -505,7 +505,8 @@ After picking rows:
 Outcome: 1 Applied  2 In progress  3 Awaiting reply  4 Rejected  (Enter = keep)
 Stage:   1 Online Assessment  2 Initial Screening  3 Interview  (Enter = keep)
 Note for Remarks (optional):
-Update 2 rows: In progress · Online Assessment? [y/N]
+Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday):
+Update 2 rows: In progress · Online Assessment · dated 11/01/2026? [Y/n]
 ```
 - Number or name, any case; invalid input asks again.
 - **Rejected:** the Stage question is not asked; Stage stays as it is.
@@ -516,12 +517,13 @@ Update 2 rows: In progress · Online Assessment? [y/N]
 - Enter at both questions and no note = nothing to change, back to the row prompt.
 - The confirm line names exactly what will be written: the Outcome, the Stage and
   `note "..."`, joined by ` · `, leaving out what is kept.
+- The date question and the confirm: see "Update date and confirm" below.
 - Table: **Last Updated** after Stage. Outcome styles: In progress bold, Rejected dim.
 - Everything else from milestone 7 stays (finding rows again, pending files, re-print).
 
 ### Last Updated
 
-- `find.py` writes today's date to **Last Updated** on a row only when, on that row:
+- `find.py` writes the update's date (default today, see below) to **Last Updated** on a row only when, on that row:
   - Stage changes to a different value, or
   - Outcome changes to Awaiting reply or Rejected (from something else).
 
@@ -530,6 +532,24 @@ Update 2 rows: In progress · Online Assessment? [y/N]
   date value.) It is checked against the row as it is when the write happens.
 - `apply.py` writes today's date to Last Updated on the new row (same as Date).
 - Never written for rows I didn't change. Old rows stay blank.
+
+### Update date and confirm (find.py)
+
+- After the note: `Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday): `
+- Enter = today. Also accepted: `yesterday`, `M/D` (current year), `M/D/YYYY`, `YYYY-MM-DD`;
+  any case, surrounding spaces ignored. Anything else says which formats work and asks again.
+- A future date, or a date before the applied **Date** of any picked row (a Date that can't be
+  read is not checked), is rejected with the reason and asked again.
+- Asked only when something dated will be written: a note is given, or Last Updated changes on
+  at least one picked row under the rules above (checked against the rows as shown). Otherwise
+  it is skipped and nothing dated is written.
+- The date is used for Last Updated and for the `MM/DD/YYYY` prefix of the Remarks note, in
+  Excel and the Sheet.
+- Pending update files keep the date (the existing `noted_on` field), so a pending update is
+  written later with that date. Old pending files already hold the day they were saved there.
+- Confirm: `Update 2 rows: Rejected · dated 11/01/2026? [Y/n]` (` · dated ...` left out when the
+  date is today). Enter or `y` writes, `n` writes nothing (`Nothing changed.`), anything else
+  asks again; any case.
 
 ### Done when
 

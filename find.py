@@ -4,14 +4,15 @@
 
 Finds every row whose Company, Position or URL contains <text>, prints them grouped by company,
 and for the rows I pick asks Outcome, then Stage (Enter keeps either), then an optional dated
-note for Remarks. Rejected skips the Stage question; In progress needs a Stage on every row.
+note for Remarks, then the date of the update when something dated is written (Enter = today).
+Rejected skips the Stage question; In progress needs a Stage on every row.
 """
 from __future__ import annotations
 
 import argparse
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -41,6 +42,8 @@ OUTCOME_PROMPT = f"Outcome: {_menu(OUTCOME_MENU)}  (Enter = keep) "
 STAGE_PROMPT = f"Stage:   {_menu(tracker.STAGES)}  (Enter = keep) "
 STAGE_REQUIRED_PROMPT = f"Stage:   {_menu(tracker.STAGES)} "
 NOTE_PROMPT = "Note for Remarks (optional): "
+DATE_PROMPT = "Date of this update (Enter = today, or MM/DD, MM/DD/YYYY, yesterday): "
+DATE_FORMATS = "Use MM/DD, MM/DD/YYYY, YYYY-MM-DD or yesterday."
 
 
 # ---------- input parsing ----------
@@ -69,6 +72,23 @@ def parse_choice(text: str, menu) -> str | None:
     if text.isdigit() and 1 <= int(text) <= len(menu):
         return menu[int(text) - 1]
     return next((o for o in menu if o.casefold() == text), None)
+
+
+def parse_update_date(text: str, today: date) -> date | None:
+    """'yesterday', 'M/D' (this year), 'M/D/YYYY' or 'YYYY-MM-DD', any case -> that date; None otherwise."""
+    text = text.strip().casefold()
+    if text == "yesterday":
+        return today - timedelta(days=1)
+    if m := re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?", text):
+        month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3) or today.year)
+    elif m := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", text):
+        year, month, day = (int(g) for g in m.groups())
+    else:
+        return None
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
 
 
 # ---------- table ----------
@@ -148,10 +168,14 @@ def _waiting(pending_path: Path, text: str) -> int:
     return len(tracker.search_rows(rows, text))
 
 
+def _answer(input_fn, prompt: str) -> str:
+    return input_fn(prompt).strip().lstrip("\ufeff")  # PowerShell pipes start with a BOM
+
+
 def _ask(input_fn, prompt: str, parse, required: bool = False):
     """Ask until `parse` accepts the answer. Enter returns "", unless `required` (then it asks again)."""
     while True:
-        answer = input_fn(prompt).strip().lstrip("\ufeff")  # PowerShell pipes start with a BOM
+        answer = _answer(input_fn, prompt)
         if not answer:
             if required:
                 continue
@@ -170,6 +194,51 @@ def ask_change(input_fn, rows) -> tuple[str, str]:
     stage = _ask(input_fn, STAGE_REQUIRED_PROMPT if required else STAGE_PROMPT,
                  lambda answer: parse_choice(answer, tracker.STAGES), required=required)
     return outcome, stage
+
+
+def _dated(rows, outcome: str, stage: str, note: str) -> bool:
+    """Will the update write a date? A note does; so does a change that moves Last Updated on a picked row."""
+    if note:
+        return True
+    probe = tracker.OutcomeUpdate("", "", [], "", 0, outcome, "", date.min, stage)
+    return any(probe.moves_last_updated(values["Outcome"], values["Stage"]) for _, values, _ in rows)
+
+
+def _too_early(day: date, rows) -> str | None:
+    """Why `day` comes before a picked row's applied Date; None if it doesn't."""
+    for _, values, _ in rows:
+        applied = tracker.parse_date(values["Date"])
+        if applied and day < applied:
+            return (f"{day:%m/%d/%Y} is before {_cell(values['Company'])} - {_cell(values['Position'])} "
+                    f"was applied ({applied:%m/%d/%Y}).")
+    return None
+
+
+def ask_date(input_fn, rows, today: date) -> date:
+    """The date of this update: Enter = today; not in the future, not before any picked row's applied Date."""
+    while True:
+        answer = _answer(input_fn, DATE_PROMPT)
+        if not answer:
+            return today
+        day = parse_update_date(answer, today)
+        if day is None:
+            print(DATE_FORMATS)
+        elif day > today:
+            print(f"{day:%m/%d/%Y} is after today.")
+        elif why := _too_early(day, rows):
+            print(why)
+        else:
+            return day
+
+
+def ask_yes(input_fn, prompt: str) -> bool:
+    """[Y/n]: Enter or y = yes, n = no, anything else asks again."""
+    while True:
+        answer = _answer(input_fn, prompt).casefold()
+        if answer in ("", "y"):
+            return True
+        if answer == "n":
+            return False
 
 
 def _write(sheet: apply.Sheet, tracker_path: Path, updates: list[tracker.OutcomeUpdate], input_fn) -> None:
@@ -229,12 +298,14 @@ def _loop(sheet: apply.Sheet, tracker_path: Path, text: str, input_fn, today: da
         if not (outcome or stage or note):
             print("Nothing to change.\n")
             continue
+        day = ask_date(input_fn, rows, today) if _dated(rows, outcome, stage, note) else today
         n = len(rows)
         change = tracker.describe_change(outcome, stage, note)
-        if input_fn(f"Update {n} row{'s' if n > 1 else ''}: {change}? [y/N] ").strip().lower() != "y":
+        dated = f" · dated {day:%m/%d/%Y}" if day != today else ""
+        if not ask_yes(input_fn, f"Update {n} row{'s' if n > 1 else ''}: {change}{dated}? [Y/n] "):
             print("Nothing changed.\n")
             continue
-        updates = [tracker.OutcomeUpdate.for_row(*row, outcome=outcome, note=note, noted_on=today, stage=stage)
+        updates = [tracker.OutcomeUpdate.for_row(*row, outcome=outcome, note=note, noted_on=day, stage=stage)
                    for row in rows]
         _write(sheet, tracker_path, updates, input_fn)
         print()
