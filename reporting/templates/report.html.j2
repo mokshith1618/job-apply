@@ -62,6 +62,23 @@
 <text class="axis" x="{{ c.left - 6 }}" y="{{ c.top_y }}" text-anchor="end">{{ c.top_value }}</text>
 </svg>
 {% endmacro %}
+{% macro sankey_svg(c) %}
+<svg class="chart sankey {{ c.shape }}" viewBox="0 0 {{ c.width }} {{ c.height }}" style="max-width: {{ c.width }}px" role="img" aria-label="Where your applications went">
+{% for part in c.parts %}
+{% for b in part.bands %}
+<path class="sk-band sk-{{ b.cls }}" d="{{ b.d }}"><title>{{ b.tip }}</title></path>
+{% endfor %}
+{% for nd in part.nodes %}
+<rect class="sk-node sk-{{ nd.cls }}" x="{{ nd.x }}" y="{{ nd.y }}" width="{{ nd.w }}" height="{{ nd.h }}"><title>{{ nd.tip }}</title></rect>
+<text class="sk-label">{% for line in nd.lines %}<tspan x="{{ nd.lx }}" y="{{ line.y }}">{{ line.text }}</tspan>{% endfor %}</text>
+{% endfor %}
+{% endfor %}
+{% if c.bracket %}
+<path class="sk-bracket" d="{{ c.bracket.d }}"></path>
+<text class="sk-note" x="{{ c.bracket.x }}" y="{{ c.bracket.y }}">{{ c.bracket.text }}</text>
+{% endif %}
+</svg>
+{% endmacro %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -140,6 +157,19 @@
 <details><summary>Show numbers</summary>{{ table(weekly_numbers) }}</details>
 </section>
 
+<section id="flow"><h2>Where your applications went</h2>
+{% if flow %}
+{% for chart in flow %}{{ sankey_svg(chart) }}{% endfor %}
+{% if flow_responses %}
+<p class="note">Stage shows the furthest step each application reached. The right side is zoomed in.</p>
+{% else %}
+<p class="calm">No responses yet.</p>
+{% endif %}
+{% else %}
+<p class="calm">No applications yet.</p>
+{% endif %}
+</section>
+
 <section id="monthly"><h2>Monthly</h2>
 {% if monthly %}
 {% for chart in monthly %}{{ monthly_svg(chart) }}{% endfor %}
@@ -148,14 +178,6 @@
 {% else %}
 <p class="calm">No applications yet.</p>
 {% endif %}
-</section>
-
-<section id="pipeline"><h2>Pipeline</h2>
-<ol class="pipeline">
-{% for label, count in pipeline %}
-<li><span class="step-value">{{ count }}</span><span class="step-label">{{ label }}</span></li>
-{% endfor %}
-</ol>
 </section>
 
 <section id="responses"><h2>Your responses ({{ responses|length }})</h2>

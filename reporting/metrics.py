@@ -174,7 +174,7 @@ def cap(lines: list[str], shown: int = ATTENTION_SHOWN) -> tuple[list[str], list
     return lines[:shown], lines[shown:]
 
 
-# ---------- totals and pipeline ----------
+# ---------- totals ----------
 
 @dataclass
 class Totals:
@@ -189,15 +189,82 @@ def totals(rows: list[Facts]) -> Totals:
                   sum(f.job.outcome == REJECTED for f in rows))
 
 
-SCREENING, INTERVIEW = "Initial Screening", "Interview"
+# ---------- 6. where your applications went (Sankey) ----------
+
+STAGES = ("Online Assessment", "Initial Screening", "Interview")  # in this order; any other Stage after them
+OUTCOME_NODES = ((IN_PROGRESS, "In progress", "progress"), (AWAITING, "Awaiting reply", "awaiting"),
+                 (derive.REJECTED_AFTER, "Rejected", "rejected"))  # (group, name, color class)
 
 
-def pipeline(rows: list[Facts]) -> list[tuple[str, int]]:
-    """Applied -> Responses -> Initial Screening -> Interview, each "reached at least" (the tracker keeps only
-    the current Stage, and Interview comes after Initial Screening)."""
-    return [("Applied", len(rows)), ("Responses", sum(f.responded for f in rows)),
-            (SCREENING, sum(f.job.stage in (SCREENING, INTERVIEW) for f in rows)),
-            (INTERVIEW, sum(f.job.stage == INTERVIEW for f in rows))]
+@dataclass
+class FlowNode:
+    key: str  # unique within its part
+    name: str
+    count: int
+    cls: str  # color: total, noreply, old, new, rejected, responded, progress, awaiting
+
+
+@dataclass
+class FlowBand:
+    source: str  # node keys
+    target: str
+    count: int
+
+
+@dataclass
+class FlowPart:
+    columns: list[list[FlowNode]]  # left to right; nodes top to bottom
+    bands: list[FlowBand]
+
+
+@dataclass
+class Flow:
+    left: FlowPart  # every row
+    right: FlowPart | None  # Responded zoomed in; None when there are no responses
+    responses: int
+
+
+def _part(columns, bands) -> FlowPart:
+    """Nodes and bands with 0 rows left out, and columns left with no node."""
+    columns = [[n for n in col if n.count] for col in columns]
+    return FlowPart([col for col in columns if col], [b for b in bands if b.count])
+
+
+def flow(rows: list[Facts], settings: Settings) -> Flow | None:
+    """Left: Applications -> Responded (any Stage) / Rejected, no response / No reply yet (every other
+    row: no Stage, not Rejected), No reply yet -> older than `no_reply_days` (as in "No reply") or not.
+    Right, zoomed in: Responded -> each Stage -> In progress / Awaiting reply / Rejected.
+    None when there are no rows."""
+    if not rows:
+        return None
+    n = settings.no_reply_days
+    responded = [f for f in rows if f.responded]
+    rejected = [f for f in rows if not f.responded and f.group == REJECTED]
+    quiet = [f for f in rows if not f.responded and f.group != REJECTED]
+    old = sum(f.age is not None and f.age > n for f in quiet)
+    left = _part(
+        [[FlowNode("all", "Applications", len(rows), "total")],
+         [FlowNode("responded", "Responded", len(responded), "responded"),
+          FlowNode("rejected", "Rejected, no response", len(rejected), "rejected"),
+          FlowNode("quiet", "No reply yet", len(quiet), "noreply")],
+         [FlowNode("new", f"Under {n} days", len(quiet) - old, "new"),
+          FlowNode("old", f"{n}+ days", old, "old")]],
+        [FlowBand("all", "responded", len(responded)), FlowBand("all", "rejected", len(rejected)),
+         FlowBand("all", "quiet", len(quiet)), FlowBand("quiet", "new", len(quiet) - old),
+         FlowBand("quiet", "old", old)])
+    if not responded:
+        return Flow(left, None, 0)
+    others = sorted({f.job.stage for f in responded} - set(STAGES))
+    stages = [s for s in STAGES if any(f.job.stage == s for f in responded)] + others
+    stage_nodes = [FlowNode(f"stage:{s}", s, sum(f.job.stage == s for f in responded), "responded") for s in stages]
+    outcome_nodes = [FlowNode(f"outcome:{group}", name, sum(f.group == group for f in responded), cls)
+                     for group, name, cls in OUTCOME_NODES]
+    bands = [FlowBand("responded", f"stage:{s}", node.count) for s, node in zip(stages, stage_nodes)]
+    bands += [FlowBand(f"stage:{s}", f"outcome:{group}", sum(f.job.stage == s and f.group == group for f in responded))
+              for s in stages for group, _, _ in OUTCOME_NODES]
+    right = _part([[FlowNode("responded", "Responded", len(responded), "responded")], stage_nodes, outcome_nodes],
+                  bands)
+    return Flow(left, right, len(responded))
 
 
 # ---------- 4-5. weekly and monthly ----------

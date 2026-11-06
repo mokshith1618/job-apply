@@ -195,7 +195,9 @@ python report.py [--sheet] [--out PATH] [--no-open] [--today YYYY-MM-DD] [--trac
 
 Reads the tracker, **never writes to it**, and makes `report.html` (gitignored), a calm page
 that opens in your browser: three summary sentences, this week, what needs your attention,
-applications per week and month, every response, your top 10 companies, applications with no
+applications per week, where your applications went (a Sankey diagram: responded, rejected
+or no reply yet, and the responses zoomed in by stage and outcome), applications per month,
+every response, your top 10 companies, applications with no
 reply, more details by source, job system and title, and a data check. One file with no
 scripts and no outside requests; light and dark follow your system.
 

@@ -11,7 +11,7 @@
   --blue: #2b62a8; --blue-soft: #e4edf8;
   --amber: #a5650b; --amber-soft: #fbf0dc;
   --red: #a85454; --red-soft: #f6e6e6;
-  --grey: #6e757e; --grey-soft: #eeeeec;
+  --grey: #6e757e; --grey-soft: #eeeeec; --grey-light: #b4b9c0;
   /* spacing */
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
   --space-7: 48px;
@@ -29,7 +29,7 @@
     --blue: #86b2e6; --blue-soft: #1c2a3d;
     --amber: #e0ac5a; --amber-soft: #382a14;
     --red: #dc9a9a; --red-soft: #3a2224;
-    --grey: #a0a7b0; --grey-soft: #272b30;
+    --grey: #a0a7b0; --grey-soft: #272b30; --grey-light: #5c636c;
   }
 }
 
@@ -129,16 +129,17 @@ svg .target { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 5; }
 .dot-key { background: var(--green); border-radius: 50%; }
 .line-key { height: 0; border-top: 2px dashed var(--muted); border-radius: 0; vertical-align: 3px; }
 
-/* ---------- 7. pipeline ---------- */
-.pipeline { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-6); }
-.pipeline li { position: relative; display: flex; flex-direction: column; padding: var(--space-3) 0 0;
-  border-top: 3px solid var(--line); }
-.pipeline li:not(:first-child) { border-top-color: var(--green); }
-.pipeline li:not(:last-child)::after { content: "→"; position: absolute; right: 0; top: var(--space-3);
-  width: var(--space-6); transform: translateX(100%); text-align: center; color: var(--faint); }
-.step-value { font-size: 1.7rem; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.step-label { color: var(--muted); font-size: var(--text-sm); }
+/* ---------- 6. where your applications went (Sankey) ---------- */
+.sk-total { --sk: var(--fill); } .sk-responded { --sk: var(--green); } .sk-progress { --sk: var(--blue); }
+.sk-awaiting { --sk: var(--amber); } .sk-rejected { --sk: var(--red); }
+.sk-noreply, .sk-old { --sk: var(--grey); } .sk-new { --sk: var(--grey-light); }
+svg .sk-node { fill: var(--sk); }
+svg .sk-band { fill: var(--sk); fill-opacity: 0.3; }
+svg .sk-band:hover { fill-opacity: 0.55; }
+svg .sk-label { fill: var(--text); font-size: var(--text-chart); paint-order: stroke; stroke: var(--bg);
+  stroke-width: 3px; stroke-linejoin: round; }
+svg .sk-note { fill: var(--muted); font-size: var(--text-chart); }
+svg .sk-bracket { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 4; }
 
 /* ---------- 8. responses ---------- */
 .response-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); align-items: start; }
@@ -184,8 +185,6 @@ footer { margin-top: var(--space-7); }
   .highlight { font-size: var(--text-sm); }
   .card { padding: var(--space-4); }
   .tiles { grid-template-columns: repeat(2, 1fr); }
-  .pipeline { grid-template-columns: repeat(2, 1fr); gap: var(--space-4); }
-  .pipeline li:not(:last-child)::after { content: none; }
   .response-cards { grid-template-columns: 1fr; }
   .chip { flex-direction: column; gap: 0; }
   .today-list li { flex-wrap: wrap; gap: 0 var(--space-2); }
