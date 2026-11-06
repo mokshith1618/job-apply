@@ -32,8 +32,9 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
 0. **Job facts card first.** Right after I give the link: detect the system (step 1), read the
    job details and description (step 3, without asking me anything yet), print the job facts
    card (see below), run the duplicate check (step 2) and print its result under the card.
-   Then straight on, with no question in between: missing details, the form, and the one
-   question at the end (step 6). There is only one "did I apply" question: the last one.
+   If it found a match, ask `Continue anyway? [y/N] ` right there, before any other question
+   or the form. Otherwise, or after `y`, go straight on: missing details, the form, and the
+   question at the end (step 6).
 
 1. **Detect the system** from the URL:
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
@@ -53,9 +54,15 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
    `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
-   runs with the card: matching rows (or "no matching link or job found") print under it.
-   If I type the company or position later (the job didn't give them) and that pair matches
-   another row, show it too. Never a question: my answer at the end (step 6) is the decision.
+   runs with the card: under it, one short line per matching row, at most 3, then `+N more`:
+   `Already in tracker: row 812 · Acme · Software Engineer I · applied 09/30/2026 · Rejected`
+   (the Stage is added when set; a row still in a pending file shows the file name instead of
+   the row). Then it asks `Continue anyway? [y/N] `: Enter or `n` stops the run
+   (`Stopped. Tracker not changed.`), writing nothing; `y` goes on. No match: the one line
+   `Tracker: no matching link or job found.` and no question. `--check` shows the lines and
+   never asks. If I type the company or position later (the job didn't give them) and that
+   pair matches another row, the same lines and question come before the form opens. A
+   match after an `e` edit at the end is only shown: my answer there decides.
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
@@ -180,9 +187,8 @@ Seniority:
 Posted:
   October 19, 2026, 8:12 AM (6 hours ago)
 
-Already in the tracker:
-  row 412: Acme | Software Engineer I | Posted October 2, 2026-LinkedIn | 10/03/2026 | Rejected
-           https://job-boards.greenhouse.io/acme/jobs/1234567
+Already in tracker: row 412 · Acme · Software Engineer I · applied 10/03/2026 · Rejected
+Continue anyway? [y/N]
 ```
 
 Rules for the text:

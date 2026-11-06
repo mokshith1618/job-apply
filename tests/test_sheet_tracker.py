@@ -179,13 +179,13 @@ def test_row_goes_to_sheet_and_excel(tracker_file, capsys):
     assert list((tracker_file.parent / "backups").glob("sheet-*.csv"))
 
 
-def test_duplicate_found_in_sheet_is_shown_with_the_card(tracker_file, capsys):
+def test_duplicate_found_in_sheet_asks_with_the_card(tracker_file, capsys):
     ws = sample_sheet()
     before = tracker_file.read_bytes()
-    script = Script("s")
+    script = Script("")  # Enter at "Continue anyway?" stops
     assert run(tracker_file, ws, script, url=LINKED_URL) == 0
-    assert script.prompts == [apply.PAUSE_PROMPT]
-    assert "row 3: Linked Co" in capsys.readouterr().out
+    assert script.prompts == [apply.CONTINUE_PROMPT]
+    assert "Already in tracker: row 3 · Linked Co" in capsys.readouterr().out
     assert ws.updates == [] and tracker_file.read_bytes() == before
 
 
@@ -212,12 +212,12 @@ def test_sheet_down_at_write_keeps_row_pending_then_flushes(tracker_file, capsys
 
     ws.batch_update = real_update  # back online
     assert run(tracker_file, ws, Script("s"), url=NEW_URL + "9") == 0
-    assert "pending_sheet.json: Acme Robotics" in capsys.readouterr().out  # same company + position, still waiting
+    assert "pending_sheet.json · Acme Robotics" in capsys.readouterr().out  # same company + position, still waiting
     assert ws.values[3][0] == "" and pending.exists()  # skipped: nothing flushed
 
-    script = Script("")  # applied: the waiting row is written first, then this one
+    script = Script("y", "")  # continue anyway, applied: the waiting row is written first, then this one
     assert run(tracker_file, ws, script, url=NEW_URL + "9") == 0
-    assert script.prompts == [apply.PAUSE_PROMPT]
+    assert script.prompts == [apply.CONTINUE_PROMPT, apply.PAUSE_PROMPT]
     assert ws.values[3][0] == "Acme Robotics" and ws.values[4][2] == NEW_URL + "9" and not pending.exists()
     assert "Wrote pending row 4 to the Google Sheet" in capsys.readouterr().out
 
@@ -288,7 +288,7 @@ def test_excel_missing_header_stops_apply_before_any_write(tracker_file, capsys)
 
 def test_sheet_header_warning_on_every_run(tracker_file, capsys):
     ws = FakeWorksheet([[h for h in HEADER if h != "Last Updated"]])
-    for script, url in ((Script(""), NEW_URL), (Script("s"), NEW_URL + "9"), (Script(""), NEW_URL + "8")):
+    for script, url in ((Script(""), NEW_URL), (Script("s"), NEW_URL + "9"), (Script("y", ""), NEW_URL + "8")):
         assert run(tracker_file, ws, script, url=url) == 0
         out = capsys.readouterr().out
         assert "Warning: the Google Sheet's row 1 is missing the header Last Updated" in out, out

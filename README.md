@@ -58,9 +58,11 @@ Added row 899 to Job Application Tracker.xlsx.
    Cloud, Rippling, SmartRecruiters, UKG, ADP, Amazon, Workable, SAP SuccessFactors, or other.
 2. **Checks for duplicates** by URL (ignoring tracking parameters like `utm_*` and `gh_src`)
    and by company + position, right under the job facts card. Rows still waiting in a
-   pending file count too. If you type the company or position
-   yourself later and they match a row, it shows that row too. It never asks: your answer at
-   the end (Enter = applied, `s` = skipped) is the only question.
+   pending file count too. Each match is one short line
+   (`Already in tracker: row 812 · Acme · Software Engineer I · applied 09/30/2026 · Rejected`,
+   at most 3, then `+N more`), followed by `Continue anyway? [y/N]`: Enter or `n` stops and
+   writes nothing, `y` goes on. If you type the company or position yourself later and they
+   match a row, it asks the same before the form opens.
 3. **Reads job details** from each board's own public data (job APIs, or the job JSON in the
    page), else from a page's `JobPosting` JSON-LD, else from the page as Chrome shows it.
    Anything it can't find, it asks you in the terminal.
@@ -218,10 +220,11 @@ keywords are in `matching.yaml`. They match whole words, so list every form you 
 A company or title read from the job is shown as is. If the job doesn't give one, the card
 shows the page's own tag marked `(from page)` (only a guess), else `Company unknown`.
 Under the card it says whether the link or the same company + position is already in the
-tracker (the Google Sheet, or the Excel file if the Sheet can't be reached). Then
-There is no question at the card: the only question is the last one (Enter = applied,
+tracker (the Google Sheet, or the Excel file if the Sheet can't be reached).
+If there is a match, it asks `Continue anyway? [y/N]` right there, before anything else
+(Enter = stop, writing nothing). Otherwise the only question is the last one (Enter = applied,
 `s` = skipped, which writes nothing).
-`--check` prints the card and the tracker result, then exits.
+`--check` prints the card and the tracker result (never asking), then exits.
 
 ## Form filling
 

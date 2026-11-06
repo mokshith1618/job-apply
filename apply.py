@@ -7,7 +7,7 @@
 Milestone 1: read job details, check for duplicates, wait for me, then add the tracker row.
 Milestone 1b: the row goes to the Google Sheet set in config.yaml, then to the local Excel file.
 Milestone 2: Greenhouse forms are filled from profile.yaml and answers.yaml before the pause.
-Milestone 1d: the job facts card and the duplicate check are printed first; the only question is the last one.
+Milestone 1d: the job facts card and the duplicate check are printed first; a match asks 'Continue anyway?'.
 This script never submits anything. I submit the application myself.
 """
 from __future__ import annotations
@@ -160,16 +160,39 @@ def show_row(row: tracker.TrackerRow) -> None:
     print(f"\n  Company:  {row.company}\n  Position: {row.position}\n  Posted:   {row.posted}\n  URL:      {row.url}\n")
 
 
+DUPLICATES_SHOWN = 3  # match lines before "+N more"
+CONTINUE_PROMPT = "Continue anyway? [y/N] "
+
+
+def duplicate_line(row, values) -> str:
+    """'Already in tracker: row 812 · Acme · Software Engineer I · applied 09/30/2026 · Rejected' (+ Stage if set)."""
+    company, position, applied, outcome, stage = (
+        "" if values.get(f) is None else values[f] for f in ("Company", "Position", "Date", "Outcome", "Stage"))
+    applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else str(applied)
+    where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
+    parts = [where, company, position, f"applied {applied}" if applied else "", outcome, stage]
+    return "Already in tracker: " + " · ".join(str(p) for p in parts if p)
+
+
 def show_duplicates(hits) -> None:
-    print("\nAlready in the tracker:")
-    for row, values in hits:
-        company, position, url, posted, applied, outcome, stage = (
-            "" if values[f] is None else values[f]
-            for f in ("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage"))
-        applied = applied.strftime("%m/%d/%Y") if hasattr(applied, "strftime") else applied
-        where = f"row {row}" if isinstance(row, int) else row  # a pending file: not written yet
-        stage = f" | {stage}" if stage else ""
-        print(f"  {where}: {company} | {position} | {posted} | {applied} | {outcome}{stage}\n           {url}")
+    """One short line per match, at most DUPLICATES_SHOWN, then '+N more'."""
+    for row, values in hits[:DUPLICATES_SHOWN]:
+        print(duplicate_line(row, values))
+    if len(hits) > DUPLICATES_SHOWN:
+        print(f"+{len(hits) - DUPLICATES_SHOWN} more")
+
+
+def confirm_duplicates(hits, input_fn) -> bool:
+    """Show the matches and ask. Only y continues; Enter, n (or Ctrl+C) stops."""
+    show_duplicates(hits)
+    try:
+        answer = input_fn(CONTINUE_PROMPT).strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        answer = ""
+    if answer in ("y", "yes"):
+        return True
+    print("Stopped. Tracker not changed.")
+    return False
 
 
 def load_config(path: Path) -> dict:
@@ -425,11 +448,14 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     # Page guesses count here too: this only reads, and a match is worth seeing before I decide.
     checked = (shown.company or shown.company_guess, shown.position or shown.position_guess)
     hits = sheet.find_duplicates(tracker_path, url=url, company=checked[0], position=checked[1])
-    if hits:
-        show_duplicates(hits)
-    else:
-        print("\nTracker: no matching link or job found.")
     print()
+    if not hits:
+        print("Tracker: no matching link or job found.\n")
+    elif args.check:
+        show_duplicates(hits)
+        print()
+    elif not confirm_duplicates(hits, input_fn):  # before the company question, the form and anything else
+        return 0
     if args.check:
         return 0
     seen = {r for r, _ in hits}
@@ -441,12 +467,12 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
     if posted_text:
         posted_date = None
 
-    # A company or position I typed just now wasn't in the check above: show any match, don't ask.
+    # A company or position I typed just now wasn't in the check above: ask again, before the form.
     if (company, position) != checked:
         hits = [h for h in sheet.find_duplicates(tracker_path, company=company, position=position)
                 if h[0] not in seen]
-        if hits:
-            show_duplicates(hits)
+        if hits and not confirm_duplicates(hits, input_fn):
+            return 0
 
     row = tracker.TrackerRow(
         company=company,
@@ -472,7 +498,7 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
                 before = (row.company, row.position)
                 row, posted_date, source = edit_details(row, posted_date, source, input_fn, today)
                 show_row(row)
-                # A new company or position: show any match, don't ask (as for a typed one above).
+                # A new company or position: show any match, don't ask (my answer at the pause decides).
                 if (row.company, row.position) != before:
                     hits = [h for h in sheet.find_duplicates(tracker_path, company=row.company,
                                                              position=row.position) if h[0] not in seen]
