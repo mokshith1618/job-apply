@@ -97,22 +97,23 @@ def ask_link(input_fn) -> str:
         print("  Paste the full link (starting with https://).")
 
 
-def read_posted(raw: str, today: date) -> date | str | None:
-    """Blank = unknown, 'today' or YYYY-MM-DD = a date (ValueError if it isn't a real one),
-    other text ('Sameday - Tsenta') = column D as typed."""
+def read_posted(raw: str, today: date, source: str) -> str | None:
+    """The posted part of column D. Blank = unknown, 'today' -> 'Posted today', YYYY-MM-DD ->
+    'Posted November 5, 2026' (ValueError if it isn't a real date), other text ('Sameday') as typed.
+    A '-{source}' typed at the end is dropped: the source is added when the row is written."""
     raw = " ".join(raw.split())
     if not raw:
         return None
     if raw.lower() == "today" or re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", raw):
-        return parse_posted(raw.lower(), today)
-    return raw
+        return tracker.posted_text(parse_posted(raw.lower(), today), today)
+    return tracker.strip_source(raw, source) or None
 
 
-def ask_posted_date(input_fn, today: date) -> date | str | None:
+def ask_posted_date(input_fn, today: date, source: str) -> str | None:
     while True:
         try:
             return read_posted(input_fn("Posted date (YYYY-MM-DD, 'today', other text = as typed, "
-                                        "or blank if unknown): "), today)
+                                        "or blank if unknown): "), today, source)
         except ValueError:
             pass
 
@@ -122,42 +123,32 @@ def ask_keep(label: str, current: str, input_fn) -> str:
     return " ".join(input_fn(f"{label} [{current}] (Enter = keep): ").split()) or current
 
 
-def edit_details(row: tracker.TrackerRow, posted_date: date | None, source: str, input_fn,
-                 today: date) -> tuple[tracker.TrackerRow, date | None, str]:
-    """e at the last question: change company, position, posted date or source (never the URL).
-    Text at the date question that isn't a date ('Sameday-Tsenta') is column D as typed."""
+def edit_details(row: tracker.TrackerRow, posted: str | None, source: str, input_fn,
+                 today: date) -> tuple[tracker.TrackerRow, str | None]:
+    """e at the last question: change company, position or the posted part (never the URL or the
+    source, which is --source). Column D is written as '{Posted}-{Source}'."""
     company = ask_keep("Company", row.company, input_fn)
     position = ask_keep("Position", row.position, input_fn)
-    # Column D typed by me in an earlier edit, not built from a date and source.
-    custom = None if row.posted == tracker.format_posted(posted_date, source, today) else row.posted
-    shown = custom or (posted_date.isoformat() if posted_date else "unknown")
     while True:
-        raw = input_fn(f"Posted date [{shown}] (YYYY-MM-DD, 'today', '-' = unknown, "
+        raw = input_fn(f"Posted [{posted or 'unknown'}] (YYYY-MM-DD, 'today', '-' = unknown, "
                        "other text = as typed, Enter = keep): ").strip()
         if raw == "-":
-            posted_date, custom = None, None
+            posted = None
+            break
+        if not raw:  # Enter keeps it
             break
         try:
-            answer = read_posted(raw, today)
+            posted = read_posted(raw, today, source) or posted
         except ValueError:
             continue
-        if isinstance(answer, str):
-            custom = answer
-        elif answer is not None:
-            posted_date, custom = answer, None
         break
-    if custom is not None:
-        return dataclasses.replace(row, company=company, position=position, posted=custom), posted_date, source
-    typed = input_fn(f"Source [{source}] (Enter = keep): ")
-    if typed.strip():
-        source = normalize_source(typed)
-    row = dataclasses.replace(row, company=company, position=position,
-                              posted=tracker.format_posted(posted_date, source, today))
-    return row, posted_date, source
+    row = dataclasses.replace(row, company=company, position=position, posted=tracker.column_d(posted, source))
+    return row, posted
 
 
-def show_row(row: tracker.TrackerRow) -> None:
-    print(f"\n  Company:  {row.company}\n  Position: {row.position}\n  Posted:   {row.posted}\n  URL:      {row.url}\n")
+def show_row(row: tracker.TrackerRow, posted: str | None, source: str) -> None:
+    print(f"\n  Company:  {row.company}\n  Position: {row.position}\n  Posted:   {posted or 'unknown'}"
+          f"\n  Source:   {source}\n  URL:      {row.url}\n")
 
 
 DUPLICATES_SHOWN = 3  # match lines before "+N more"
@@ -462,10 +453,9 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
 
     company = get_company(details, url, system, args.companies, input_fn)
     position = details.position or ask_required("Position", input_fn, details.position_guess)
-    posted_date = details.posted_date if details.posted_date else ask_posted_date(input_fn, today)
-    posted_text = posted_date if isinstance(posted_date, str) else None  # typed instead of a date
-    if posted_text:
-        posted_date = None
+    source = args.source  # always --source; I only ever type the posted part
+    posted = (tracker.posted_text(details.posted_date, today) if details.posted_date
+              else ask_posted_date(input_fn, today, source))
 
     # A company or position I typed just now wasn't in the check above: ask again, before the form.
     if (company, position) != checked:
@@ -478,14 +468,13 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
         company=company,
         position=position,
         url=url,
-        posted=posted_text or tracker.format_posted(posted_date, args.source, today),
+        posted=tracker.column_d(posted, source),
         applied_on=today,
     )
-    show_row(row)
+    show_row(row, posted, source)
     seen.update(r for r, _ in hits)
 
     session = None if args.no_fill else open_form(fill or FILLERS.get(system), url, args, input_fn)
-    source = args.source
     try:
         while True:
             answer = input_fn(PAUSE_PROMPT).strip().lower()
@@ -496,8 +485,8 @@ def main(argv=None, input_fn=input, fetch=read_details, today: date | None = Non
                 break
             if answer == "e":
                 before = (row.company, row.position)
-                row, posted_date, source = edit_details(row, posted_date, source, input_fn, today)
-                show_row(row)
+                row, posted = edit_details(row, posted, source, input_fn, today)
+                show_row(row, posted, source)
                 # A new company or position: show any match, don't ask (my answer at the pause decides).
                 if (row.company, row.position) != before:
                     hits = [h for h in sheet.find_duplicates(tracker_path, company=row.company,

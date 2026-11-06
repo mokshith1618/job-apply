@@ -117,70 +117,78 @@ def test_ctrl_c_at_the_link_stops(tracker_file, capsys):
     assert "Stopped." in capsys.readouterr().out
 
 
+def posted_prompt(current):
+    return (f"Posted [{current}] (YYYY-MM-DD, 'today', '-' = unknown, "
+            "other text = as typed, Enter = keep): ")
+
+
 def test_e_then_enter_keeps_every_value(tracker_file):
-    script = Script("e", "", "", "", "", "")
+    script = Script("e", "", "", "", "")
     assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
-    assert script.prompts[1:5] == [
+    assert script.prompts[1:4] == [
         "Company [Acme Robotics] (Enter = keep): ",
         "Position [Software Engineer I] (Enter = keep): ",
-        "Posted date [2026-10-08] (YYYY-MM-DD, 'today', '-' = unknown, "
-        "other text = as typed, Enter = keep): ",
-        "Source [LinkedIn] (Enter = keep): ",
+        posted_prompt("Posted October 8, 2026"),  # only the posted part; the source is never asked
     ]
     assert script.prompts[-1] == apply.PAUSE_PROMPT  # back to the same question
     assert [cell(tracker_file, r) for r in ("A898", "B898", "C898", "D898")] == [
         "Acme Robotics", "Software Engineer I", NEW_URL, "Posted October 8, 2026-LinkedIn"]
 
 
+def test_summary_shows_posted_and_source_apart(tracker_file, capsys):
+    assert run(tracker_file, NEW_URL, Script(""), extra=["--source", "Tsenta"]) == 0
+    assert ("  Company:  Acme Robotics\n  Position: Software Engineer I\n  Posted:   Posted October 8, 2026\n"
+            "  Source:   Tsenta\n  URL:      ") in capsys.readouterr().out
+
+
 def test_e_edits_reach_the_tracker(tracker_file, capsys):
-    script = Script("e", " Acme ", "Backend Engineer", "2026-10-01", "tsenta", "")
-    assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
+    script = Script("e", " Acme ", "Backend Engineer", "2026-10-01", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Tsenta"]) == 0
     assert [cell(tracker_file, r) for r in ("A898", "B898", "C898", "D898")] == [
         "Acme", "Backend Engineer", NEW_URL, "Posted October 1, 2026-Tsenta"]
-    assert "Company:  Acme\n  Position: Backend Engineer\n  Posted:   Posted October 1, 2026-Tsenta" \
-        in capsys.readouterr().out  # the summary again, before the question
+    assert ("Company:  Acme\n  Position: Backend Engineer\n  Posted:   Posted October 1, 2026\n"
+            "  Source:   Tsenta") in capsys.readouterr().out  # the summary again, before the question
 
 
 def test_e_twice_starts_from_the_edited_values(tracker_file):
-    script = Script("e", "", "", "today", "", "e", "", "", "-", "Indeed", "")
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[8] == ("Posted date [2026-10-13] (YYYY-MM-DD, 'today', '-' = unknown, "
-                                 "other text = as typed, Enter = keep): ")
-    assert cell(tracker_file, "D898") == "Indeed"  # no date: just the source
+    script = Script("e", "", "", "today", "e", "", "", "-", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Indeed"]) == 0
+    assert script.prompts[7] == posted_prompt("Posted today")
+    assert cell(tracker_file, "D898") == "Indeed"  # unknown: just the source
 
 
 def test_e_bad_date_asks_again(tracker_file, capsys):
-    script = Script("e", "", "", "2026-13-40", "2026-10-09", "", "")
+    script = Script("e", "", "", "2026-13-40", "2026-10-09", "")
     assert run(tracker_file, NEW_URL, script) == 0
     assert script.prompts[3] == script.prompts[4]
     assert "Use YYYY-MM-DD" in capsys.readouterr().out
     assert cell(tracker_file, "D898") == "Posted October 9, 2026-Other"
 
 
-def test_e_other_text_is_column_d_as_typed(tracker_file):
-    script = Script("e", "", "", " Sameday-Tsenta ", "")  # no Source question
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert len(script.prompts) == 5
-    assert script.prompts[-1] == apply.PAUSE_PROMPT
-    assert cell(tracker_file, "D898") == "Sameday-Tsenta"
+@pytest.mark.parametrize("typed,column_d", [
+    ("Sameday", "Sameday-Tsenta"),
+    (" Sameday-Tsenta ", "Sameday-Tsenta"),  # the source typed too: not added twice
+    ("Sameday - tsenta", "Sameday-Tsenta"),
+    ("2026-11-05", "Posted November 5, 2026-Tsenta"),
+    ("today", "Posted today-Tsenta"),
+])
+def test_e_posted_text_gets_the_source(tracker_file, typed, column_d):
+    script = Script("e", "", "", typed, "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Tsenta"]) == 0
+    assert len(script.prompts) == 5 and script.prompts[-1] == apply.PAUSE_PROMPT  # no Source question
+    assert cell(tracker_file, "D898") == column_d
 
 
 def test_e_typed_posted_text_is_kept_by_a_later_edit(tracker_file):
-    script = Script("e", "", "", "Sameday-Tsenta", "e", "", "", "", "")
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[7].startswith("Posted date [Sameday-Tsenta] ")
+    script = Script("e", "", "", "Sameday", "e", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Tsenta"]) == 0
+    assert script.prompts[7] == posted_prompt("Sameday")
     assert cell(tracker_file, "D898") == "Sameday-Tsenta"
-
-
-def test_e_date_after_typed_text_asks_source_again(tracker_file):
-    script = Script("e", "", "", "Sameday-Tsenta", "e", "", "", "today", "LinkedIn", "")
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert cell(tracker_file, "D898") == "Posted today-LinkedIn"
 
 
 def test_e_then_s_writes_nothing(tracker_file):
     before = tracker_file.read_bytes()
-    assert run(tracker_file, NEW_URL, Script("e", "Other Co", "", "", "", "s")) == 0
+    assert run(tracker_file, NEW_URL, Script("e", "Other Co", "", "", "s")) == 0
     assert tracker_file.read_bytes() == before
 
 
@@ -199,9 +207,9 @@ class Recorder(Script):
 def test_e_company_position_matching_a_row_is_shown_not_asked(dup_tracker, capsys):
     tracker_file = dup_tracker
     before = tracker_file.read_bytes()
-    script = Recorder(capsys, "e", KNOWN_COMPANY, KNOWN_POSITION, "", "", "s")
+    script = Recorder(capsys, "e", KNOWN_COMPANY, KNOWN_POSITION, "", "s")
     assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[-1] == apply.PAUSE_PROMPT and len(script.prompts) == 6  # no extra question
+    assert script.prompts[-1] == apply.PAUSE_PROMPT and len(script.prompts) == 5  # no extra question
     assert f"Already in tracker: row {KNOWN_ROW} · {KNOWN_COMPANY}" in script.printed[-1]
     assert tracker_file.read_bytes() == before
 
@@ -369,18 +377,20 @@ def no_date(url):
     return JobDetails("Acme Robotics", "Software Engineer I")
 
 
-def test_missing_date_text_is_column_d_as_typed(tracker_file):
-    script = Script(" Sameday  - Tsenta ", "")
+@pytest.mark.parametrize("typed,column_d", [(" Sameday ", "Sameday-Tsenta"),
+                                            (" Sameday  - Tsenta ", "Sameday-Tsenta")])
+def test_missing_date_text_gets_the_source(tracker_file, typed, column_d):
+    script = Script(typed, "")
     assert run(tracker_file, NEW_URL, script, fetch=no_date, extra=["--source", "Tsenta"]) == 0
     assert len(script.prompts) == 2  # no Source question
-    assert cell(tracker_file, "D898") == "Sameday - Tsenta"
+    assert cell(tracker_file, "D898") == column_d
 
 
 def test_missing_date_text_is_kept_by_e(tracker_file):
-    script = Script("Sameday - Tsenta", "e", "", "", "", "")
-    assert run(tracker_file, NEW_URL, script, fetch=no_date) == 0
-    assert script.prompts[4].startswith("Posted date [Sameday - Tsenta] ")
-    assert cell(tracker_file, "D898") == "Sameday - Tsenta"
+    script = Script("Sameday", "e", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script, fetch=no_date, extra=["--source", "LinkedIn"]) == 0
+    assert script.prompts[4] == posted_prompt("Sameday")
+    assert cell(tracker_file, "D898") == "Sameday-LinkedIn"
 
 
 def test_missing_date_not_a_real_date_asks_again(tracker_file, capsys):

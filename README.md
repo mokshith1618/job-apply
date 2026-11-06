@@ -33,7 +33,8 @@ Tracker: no matching link or job found.
 
   Company:  Acme
   Position: Software Engineer
-  Posted:   Posted October 13, 2026-LinkedIn
+  Posted:   Posted October 13, 2026
+  Source:   LinkedIn
   URL:      https://job-boards.greenhouse.io/acme/jobs/1234567
 
 Enter = applied, s = skipped, e = edit details:
@@ -137,7 +138,7 @@ Leave the link out and it asks `Job link: `: paste it with Ctrl+V and press Ente
 
 | Option | Meaning |
 |---|---|
-| `--source` | where you found the job; goes into Posted date/ Source and answers "How did you hear about us?". Any case works (`linkedin` → `LinkedIn`), a near-miss like `Linkdin` is fixed, and any other name (`Indeed`) is kept as typed |
+| `--source` | where you found the job; goes into Posted date/ Source as `{Posted}-{Source}` (`Posted today-Tsenta`) and answers "How did you hear about us?". It is never asked: at the posted-date question and at `e` you type only the posted part (`today`, `YYYY-MM-DD`, or text like `Sameday`). Any case works (`linkedin` → `LinkedIn`), a near-miss like `Linkdin` is fixed, and any other name (`Indeed`) is kept as typed |
 | `--tracker` | a different local Excel file |
 | `--no-sheet` | skip the Google Sheet for this run |
 | `--no-fill` | don't open or fill the form |

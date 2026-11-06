@@ -391,13 +391,29 @@ def next_row(ws, company_col: int = 1) -> int:
     return 2
 
 
+def posted_text(posted_date: date, today: date) -> str:
+    """The posted part of column D: 'Posted today' or 'Posted October 8, 2026'."""
+    if posted_date == today:
+        return "Posted today"
+    return f"Posted {posted_date:%B} {posted_date.day}, {posted_date.year}"
+
+
+def strip_source(posted: str | None, source: str) -> str:
+    """The posted part without a trailing '-{source}' I may have typed ('Sameday - Tsenta' -> 'Sameday')."""
+    posted = " ".join((posted or "").split())
+    return re.sub(r"\s*-\s*" + re.escape(source) + r"$", "", posted, flags=re.IGNORECASE) if source else posted
+
+
+def column_d(posted: str | None, source: str) -> str:
+    """Posted date/ Source: '{posted}-{source}' ('Posted today-Tsenta'), the source never twice;
+    no posted part: the source alone."""
+    posted = strip_source(posted, source)
+    return f"{posted}-{source}" if posted else source
+
+
 def format_posted(posted_date: date | None, source: str, today: date) -> str:
     """Posted date/ Source: 'Posted today-Tsenta' or 'Posted October 8, 2026-LinkedIn'."""
-    if posted_date is None:
-        return source
-    if posted_date == today:
-        return f"Posted today-{source}"
-    return f"Posted {posted_date:%B} {posted_date.day}, {posted_date.year}-{source}"
+    return column_d(posted_text(posted_date, today) if posted_date else None, source)
 
 
 def backup(path, backup_dir=None) -> Path:

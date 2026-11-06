@@ -98,9 +98,10 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    - Still missing: ask me in the terminal. Company and position guesses from `og:site_name`,
      `og:title`, `<h1>` and `<title>` are offered as defaults (Enter accepts). A JSON-LD company
      that needs tidying ("JPMC Candidate Experience page", Workday's "2100 NVIDIA USA") is also
-     only a guess. The posted date is never guessed. At the posted-date question I can type
-     `today`, `YYYY-MM-DD`, blank (unknown), or any other text (e.g. `Sameday - Tsenta`), which
-     goes to column D exactly as typed. A `YYYY-MM-DD` that isn't a real date asks again.
+     only a guess. The posted date is never guessed. At the posted-date question I type only
+     the posted part: `today` (= `Posted today`), `YYYY-MM-DD` (= `Posted November 5, 2026`),
+     blank (unknown), or any other text (e.g. `Sameday`), kept as typed. A `YYYY-MM-DD` that
+     isn't a real date asks again. The source is never asked: it is always `--source`.
    - Company still missing (e.g. HPE's Workday leaves it blank everywhere): use the name I gave
      this careers site before, from `companies.yaml`. Otherwise ask me, suggesting the name in
      the link (`hpe.wd5.myworkdayjobs.com` -> `HPE`), and save my answer for the site. Only
@@ -123,16 +124,24 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    - Unknown optional field: leave blank and list it at the end.
 6. **Pause.** Print a summary (filled, skipped, needs attention) and:
    `Enter = applied, s = skipped, e = edit details: ` (I review the form and click Submit myself first).
-   - `e` (optional) asks Company, Position, Posted date and Source again, each showing its
-     current value: Enter keeps it, typing replaces it (`today`, `YYYY-MM-DD`, or `-` = unknown
-     for the date; the source is read like `--source`). Any other text at the date question
-     (e.g. `Sameday-Tsenta`) is written to column D exactly as typed, and Source isn't asked;
-     a later `e` shows that text and Enter keeps it. A `YYYY-MM-DD` that isn't a real date
-     asks again. The URL can't be edited. The row summary
+   - `e` (optional) asks Company, Position and Posted again, each showing its current value:
+     Enter keeps it, typing replaces it. For Posted I type only the posted part, as at the
+     posted-date question (`today`, `YYYY-MM-DD`, other text as typed, `-` = unknown); a
+     `YYYY-MM-DD` that isn't a real date asks again. The source is never asked (it is
+     `--source`), and the URL can't be edited. The row summary
      is printed again; if company or position changed, matching tracker rows are shown (no
      question). Then the same question again; `e` can be used more than once. The edits are for
      this row only (`companies.yaml` is not changed).
-7. **Write the tracker row** only if I pressed Enter.
+   - The row summary shows Posted and Source as two lines:
+     ```
+       Posted:   Posted today
+       Source:   Tsenta
+     ```
+7. **Write the tracker row** only if I pressed Enter. Column D is `{Posted}-{Source}`
+   (`Posted today-Tsenta`, `Posted November 5, 2026-Tsenta`, `Sameday-Tsenta`). If the posted
+   text I typed already ends with `-{Source}` (any case, spaces around `-` allowed), the source
+   isn't added twice (`Sameday - Tsenta` -> `Sameday-Tsenta`). Posted unknown: the source alone.
+   Existing rows are never changed.
 
 ## Job facts card (milestone 1d)
 

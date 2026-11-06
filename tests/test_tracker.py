@@ -323,3 +323,25 @@ def test_shuffled_columns_append_and_read(tmp_path):
     assert rows[2]["Position"] == "Role 2"
     hits = tracker.find_duplicates(path, url="https://job-boards.greenhouse.io/acme/jobs/1234567?gh_src=x")
     assert [row for row, _ in hits] == [r]
+
+
+@pytest.mark.parametrize("posted,source,expected", [
+    ("Posted today", "Tsenta", "Posted today-Tsenta"),
+    ("Posted November 5, 2026", "Tsenta", "Posted November 5, 2026-Tsenta"),
+    ("Sameday", "LinkedIn", "Sameday-LinkedIn"),
+    ("Posted today-Tsenta", "Tsenta", "Posted today-Tsenta"),  # never twice
+    ("Sameday - TSENTA", "Tsenta", "Sameday-Tsenta"),
+    ("Sameday-Tsenta", "LinkedIn", "Sameday-Tsenta-LinkedIn"),  # another source is just text
+    (None, "Other", "Other"),
+    ("  ", "Other", "Other"),
+])
+def test_column_d(posted, source, expected):
+    assert tracker.column_d(posted, source) == expected
+
+
+def test_posted_text():
+    today = date(2026, 11, 6)
+    assert tracker.posted_text(today, today) == "Posted today"
+    assert tracker.posted_text(date(2026, 11, 5), today) == "Posted November 5, 2026"
+    assert tracker.format_posted(date(2026, 11, 5), "Tsenta", today) == "Posted November 5, 2026-Tsenta"
+    assert tracker.format_posted(None, "Tsenta", today) == "Tsenta"
