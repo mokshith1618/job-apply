@@ -39,8 +39,7 @@ DEFAULT_COMPANIES = HERE / "companies.yaml"
 DEFAULT_MATCHING = HERE / "matching.yaml"
 BROWSER_PROFILE = HERE / "browser-profile"
 FILLERS = {"greenhouse": greenhouse.open_and_fill}  # system -> form filler; tests replace this
-PAUSE_PROMPT = ("Review the form and click Submit yourself. "
-                "Then press Enter = applied, s = skipped, e = edit details. ")
+PAUSE_PROMPT = "Enter = applied, s = skipped, e = edit details: "
 
 
 SOURCES = ("LinkedIn", "Tsenta", "Other")

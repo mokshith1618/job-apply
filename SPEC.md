@@ -115,7 +115,7 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
      terminal, and ask me for the answer. Offer to save it to `answers.yaml`.
    - Unknown optional field: leave blank and list it at the end.
 6. **Pause.** Print a summary (filled, skipped, needs attention) and:
-   `Review the form and click Submit yourself. Then press Enter = applied, s = skipped, e = edit details.`
+   `Enter = applied, s = skipped, e = edit details: ` (I review the form and click Submit myself first).
    - `e` (optional) asks Company, Position, Posted date and Source again, each showing its
      current value: Enter keeps it, typing replaces it (`today`, `YYYY-MM-DD`, or `-` = unknown
      for the date; the source is read like `--source`). Any other text at the date question
