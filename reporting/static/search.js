@@ -57,12 +57,24 @@ function rowsTable(rows, columns) {
       tr.appendChild(td);
     });
     body.appendChild(tr);
+    if (row.remarks.length) body.appendChild(remarkRow(row.remarks, columns.length));
   });
   table.appendChild(body);
   var wrap = el("div", "table-wrap");
   wrap.appendChild(table);
   details.appendChild(wrap);
   return details;
+}
+
+// A closed "Remarks" toggle under a row, one note per line.
+function remarkRow(lines, span) {
+  var tr = el("tr", "remark-row"), td = el("td"), details = el("details");
+  td.colSpan = span;
+  details.appendChild(el("summary", "", "Remarks"));
+  lines.forEach(function (line) { details.appendChild(el("div", "remark", line)); });
+  td.appendChild(details);
+  tr.appendChild(td);
+  return tr;
 }
 
 function outcomeCell(row) { return pill(row.outcome_cls, row.outcome); }

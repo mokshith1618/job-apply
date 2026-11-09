@@ -349,12 +349,17 @@ def outcome_class(f: Facts, settings: Settings) -> str:
     return "waiting"
 
 
+def remark_lines(text: str) -> list[str]:
+    """Remarks as notes, one per line: find.py writes 'note | MM/DD/YYYY note'. Text kept as written."""
+    return [part.strip() for part in text.split("|") if part.strip()]
+
+
 def response_cards(rows: list[Facts], settings: Settings) -> list[dict]:
     return [{"company": f.job.company, "position": f.job.position, "stage": f.job.stage,
              "outcome": f.job.outcome or "Applied", "outcome_cls": outcome_class(f, settings),
              "facts": [("Source", f.source), ("Job system", f.system), ("Applied", day(f.job.applied)),
                        ("Last Updated", day(f.job.last_updated) or "unknown")],
-             "link": link(f.job.url)} for f in rows]
+             "link": link(f.job.url), "remarks": remark_lines(f.job.remarks)} for f in rows]
 
 
 def company_bars(companies: list[metrics.CompanyRow]) -> list[dict]:
@@ -424,7 +429,8 @@ def search_data(rows: list[Facts], settings: Settings) -> str:
         return {"company": f.job.company, "company_key": f.company_key, "position": f.job.position,
                 "position_key": tracker.search_key(f.job.position), "applied": day(f.job.applied),
                 "outcome": f.job.outcome or "Applied", "outcome_cls": outcome_class(f, settings),
-                "stage": f.job.stage, "domain": lk.domain if lk else "", "href": lk.href if lk else ""}
+                "stage": f.job.stage, "domain": lk.domain if lk else "", "href": lk.href if lk else "",
+                "remarks": remark_lines(f.job.remarks)}
     newest = sorted(rows, key=lambda f: (f.job.applied is None, -(f.job.applied or date.min).toordinal(), -f.job.row))
     return script_json({"suffixes": sorted(tracker.COMPANY_SUFFIXES), "rows": [row(f) for f in newest]})
 

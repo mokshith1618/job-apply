@@ -197,6 +197,7 @@
 <dl>
 {% for k, v in r.facts %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
 {% if r.link %}<dt>Link</dt><dd>{{ cell(r.link) }}</dd>{% endif %}
+{% if r.remarks %}<dt>Remarks</dt><dd>{% for line in r.remarks %}<span class="remark">{{ line }}</span>{% endfor %}</dd>{% endif %}
 </dl>
 </details>
 </article>

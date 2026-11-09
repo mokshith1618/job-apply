@@ -684,6 +684,9 @@ text). Esc empties the box; an empty box shows no results. It matches Company an
 - **Title match** (rows whose Position contains the text): one card `"{text}" in title ·
   {n} applications · {r} responses · {x} rejected`, then `Top companies: A 4 · B 3 · C 2` (up to
   3), then a collapsed list: Company · Position · Applied · Outcome · Stage.
+- **Remarks**: under each listed row that has Remarks, a closed `Remarks` toggle; opened, it
+  shows the Remarks one note per line (split at `|`, as find.py writes `note | MM/DD/YYYY
+  note`), text as in the tracker. Rows with blank Remarks have no toggle.
 - Both match: company cards first. Several companies: one card each, at most 5 (most
   applications first, ties: most recent application, as in Top 10), then `+N more`. No match:
   `No applications match "{text}".`
@@ -692,7 +695,8 @@ text). Esc empties the box; an empty box shows no results. It matches Company an
   newest row. Rows newest applied first, no Date last; dates `10/27/2026`. Outcome pill: the
   Outcome (blank = Applied) colored as in section 9; Stage pill (green) only when set.
 - Data: one JSON array of rows with only what the search needs (company, company key,
-  position, position key, applied, outcome, outcome color, stage, link domain, full link), in a
+  position, position key, applied, outcome, outcome color, stage, link domain, full link,
+  remarks as a list of notes), in a
   `<script type="application/json">` block with `<`, `>`, `&`, U+2028 and U+2029 escaped, so
   tracker text can't end the block. A small inline script (`reporting/static/search.js`)
   filters and draws the cards with the page's CSS classes and pills, using only
@@ -787,7 +791,8 @@ counts only.
 Heading shows the count: `Your responses (12)`. Each card: Company (bold), Position below,
 a Stage pill (green) and an Outcome pill (In progress = blue, Awaiting reply = grey, or amber
 when Last Updated is older than `follow_up_days`, Rejected = muted red). Source, Job system,
-Applied, Last Updated and the link inside a collapsed `<details>` on the card.
+Applied, Last Updated, the link and Remarks (one note per line, split at `|`; left out when
+blank) inside a collapsed `<details>` on the card.
 
 **10. Top 10 companies, with outcomes**
 By number of applications (ties: most recent application first). One horizontal bar each,

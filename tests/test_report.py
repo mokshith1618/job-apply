@@ -964,6 +964,24 @@ def test_response_cards_and_pills():
     assert "<dt>Last Updated</dt><dd>10/20/2026</dd>" in cards and "<dt>Link</dt>" in cards
 
 
+def test_remark_lines():
+    assert render.remark_lines("a | 10/27/2026 b |  | c ") == ["a", "10/27/2026 b", "c"]
+    assert render.remark_lines("") == [] and render.remark_lines(" | ") == []
+
+
+def test_response_card_remarks_closed_and_one_line_per_note():
+    rows = [F(company="Noted", applied=d(10, 5), outcome="In progress", stage="Interview",
+              remarks="referred by Sam | 10/27/2026 OA sent"),
+            F(company="Blank", applied=d(10, 4), outcome="Awaiting reply", stage="Interview")]
+    cards = re.findall(r'<article class="response-card">.*?</article>', section(page(rows), "responses"), re.S)
+    noted, blank = cards
+    details = re.search(r"<details>.*</details>", noted, re.S).group(0)  # inside the closed Details
+    assert "<details open" not in noted
+    assert ('<dt>Remarks</dt><dd><span class="remark">referred by Sam</span>'
+            '<span class="remark">10/27/2026 OA sent</span></dd>') in details
+    assert "<dt>Remarks</dt>" not in blank
+
+
 def test_top_companies_bars():
     rows = ([F(company="Gamma", applied=d(10, 20)), F(company="Gamma", applied=d(10, 21), outcome="Rejected"),
              F(company="Gamma", applied=d(10, 22), outcome="Rejected", stage="Interview")]
@@ -1121,7 +1139,7 @@ def test_report_out_must_be_html(tracker_file, report_env, capsys):
 # ---------- 0. search ----------
 
 SEARCH_FIELDS = {"company", "company_key", "position", "position_key", "applied", "outcome", "outcome_cls", "stage",
-                 "domain", "href"}
+                 "domain", "href", "remarks"}
 
 
 def search_block(html):
@@ -1136,7 +1154,8 @@ def test_search_data_rows_and_fields():
     rows = [F(row=2, company="Acme, Inc.", position="Data Engineer", applied=d(10, 1), stage="Interview",
               outcome="In progress"),
             F(row=3, company="Globex", position="SRE", applied=None, url="javascript:alert(1)"),
-            F(row=4, company="ACME", position="Backend Engineer", applied=d(10, 20), outcome="Rejected"),
+            F(row=4, company="ACME", position="Backend Engineer", applied=d(10, 20), outcome="Rejected",
+              remarks="referred by Sam | 10/22/2026 rejected by email"),
             F(row=5, company="Initech LLC", position="S&P Analyst", applied=d(10, 20), outcome="",
               url="https://www.boards.greenhouse.io/initech/jobs/5")]
     data = search_json(page(rows))
@@ -1148,22 +1167,24 @@ def test_search_data_rows_and_fields():
     assert initech == {"company": "Initech LLC", "company_key": "initech", "position": "S&P Analyst",
                        "position_key": "s p analyst", "applied": "10/20/2026", "outcome": "Applied",
                        "outcome_cls": "waiting", "stage": "", "domain": "boards.greenhouse.io",
-                       "href": "https://www.boards.greenhouse.io/initech/jobs/5"}
+                       "href": "https://www.boards.greenhouse.io/initech/jobs/5", "remarks": []}
     assert acme["company_key"] == acme_upper["company_key"] == "acme"
     assert (acme["outcome"], acme["outcome_cls"], acme["stage"]) == ("In progress", "progress", "Interview")
     assert acme_upper["outcome_cls"] == "rejected"
+    assert acme_upper["remarks"] == ["referred by Sam", "10/22/2026 rejected by email"]
     assert (globex["applied"], globex["domain"], globex["href"]) == ("", "", "")
 
 
 def test_search_data_is_escaped():
     bad, pos = "</script><b>x", "A & B <i> "
-    html = page([F(company=bad, position=pos, stage="Interview", outcome="In progress")])
+    html = page([F(company=bad, position=pos, stage="Interview", outcome="In progress", remarks=f"ok | {bad}")])
     block = search_block(html)
     assert not re.search(r"[<>&  ]", block)
     assert "</script><b>" not in html and "<b>x" not in html and "<i>" not in html
     assert html.count("</script>") == 2  # the data block and the search script, nothing from the tracker
     row = json.loads(block)["rows"][0]
-    assert (row["company"], row["position"]) == (bad, pos)
+    assert (row["company"], row["position"], row["remarks"]) == (bad, pos, ["ok", bad])
+    assert '<span class="remark">&lt;/script&gt;&lt;b&gt;x</span>' in section(html, "responses")
 
 
 def test_search_box_hidden_until_the_script_runs():
