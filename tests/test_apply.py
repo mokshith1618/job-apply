@@ -117,70 +117,78 @@ def test_ctrl_c_at_the_link_stops(tracker_file, capsys):
     assert "Stopped." in capsys.readouterr().out
 
 
+def posted_prompt(current):
+    return (f"Posted [{current}] (YYYY-MM-DD, 'today', '-' = unknown, "
+            "other text = as typed, Enter = keep): ")
+
+
 def test_e_then_enter_keeps_every_value(tracker_file):
-    script = Script("e", "", "", "", "", "")
+    script = Script("e", "", "", "", "")
     assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
-    assert script.prompts[1:5] == [
+    assert script.prompts[1:4] == [
         "Company [Acme Robotics] (Enter = keep): ",
         "Position [Software Engineer I] (Enter = keep): ",
-        "Posted date [2026-10-08] (YYYY-MM-DD, 'today', '-' = unknown, "
-        "other text = as typed, Enter = keep): ",
-        "Source [LinkedIn] (Enter = keep): ",
+        posted_prompt("Posted October 8, 2026"),  # only the posted part; the source is never asked
     ]
     assert script.prompts[-1] == apply.PAUSE_PROMPT  # back to the same question
     assert [cell(tracker_file, r) for r in ("A898", "B898", "C898", "D898")] == [
         "Acme Robotics", "Software Engineer I", NEW_URL, "Posted October 8, 2026-LinkedIn"]
 
 
+def test_summary_shows_posted_and_source_apart(tracker_file, capsys):
+    assert run(tracker_file, NEW_URL, Script(""), extra=["--source", "Tsenta"]) == 0
+    assert ("  Company:  Acme Robotics\n  Position: Software Engineer I\n  Posted:   Posted October 8, 2026\n"
+            "  Source:   Tsenta\n  URL:      ") in capsys.readouterr().out
+
+
 def test_e_edits_reach_the_tracker(tracker_file, capsys):
-    script = Script("e", " Acme ", "Backend Engineer", "2026-10-01", "tsenta", "")
-    assert run(tracker_file, NEW_URL, script, extra=["--source", "LinkedIn"]) == 0
+    script = Script("e", " Acme ", "Backend Engineer", "2026-10-01", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Tsenta"]) == 0
     assert [cell(tracker_file, r) for r in ("A898", "B898", "C898", "D898")] == [
         "Acme", "Backend Engineer", NEW_URL, "Posted October 1, 2026-Tsenta"]
-    assert "Company:  Acme\n  Position: Backend Engineer\n  Posted:   Posted October 1, 2026-Tsenta" \
-        in capsys.readouterr().out  # the summary again, before the question
+    assert ("Company:  Acme\n  Position: Backend Engineer\n  Posted:   Posted October 1, 2026\n"
+            "  Source:   Tsenta") in capsys.readouterr().out  # the summary again, before the question
 
 
 def test_e_twice_starts_from_the_edited_values(tracker_file):
-    script = Script("e", "", "", "today", "", "e", "", "", "-", "Indeed", "")
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[8] == ("Posted date [2026-10-13] (YYYY-MM-DD, 'today', '-' = unknown, "
-                                 "other text = as typed, Enter = keep): ")
-    assert cell(tracker_file, "D898") == "Indeed"  # no date: just the source
+    script = Script("e", "", "", "today", "e", "", "", "-", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Indeed"]) == 0
+    assert script.prompts[7] == posted_prompt("Posted today")
+    assert cell(tracker_file, "D898") == "Indeed"  # unknown: just the source
 
 
 def test_e_bad_date_asks_again(tracker_file, capsys):
-    script = Script("e", "", "", "2026-13-40", "2026-10-09", "", "")
+    script = Script("e", "", "", "2026-13-40", "2026-10-09", "")
     assert run(tracker_file, NEW_URL, script) == 0
     assert script.prompts[3] == script.prompts[4]
     assert "Use YYYY-MM-DD" in capsys.readouterr().out
     assert cell(tracker_file, "D898") == "Posted October 9, 2026-Other"
 
 
-def test_e_other_text_is_column_d_as_typed(tracker_file):
-    script = Script("e", "", "", " Sameday-Tsenta ", "")  # no Source question
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert len(script.prompts) == 5
-    assert script.prompts[-1] == apply.PAUSE_PROMPT
-    assert cell(tracker_file, "D898") == "Sameday-Tsenta"
+@pytest.mark.parametrize("typed,column_d", [
+    ("Sameday", "Sameday-Tsenta"),
+    (" Sameday-Tsenta ", "Sameday-Tsenta"),  # the source typed too: not added twice
+    ("Sameday - tsenta", "Sameday-Tsenta"),
+    ("2026-11-05", "Posted November 5, 2026-Tsenta"),
+    ("today", "Posted today-Tsenta"),
+])
+def test_e_posted_text_gets_the_source(tracker_file, typed, column_d):
+    script = Script("e", "", "", typed, "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Tsenta"]) == 0
+    assert len(script.prompts) == 5 and script.prompts[-1] == apply.PAUSE_PROMPT  # no Source question
+    assert cell(tracker_file, "D898") == column_d
 
 
 def test_e_typed_posted_text_is_kept_by_a_later_edit(tracker_file):
-    script = Script("e", "", "", "Sameday-Tsenta", "e", "", "", "", "")
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[7].startswith("Posted date [Sameday-Tsenta] ")
+    script = Script("e", "", "", "Sameday", "e", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script, extra=["--source", "Tsenta"]) == 0
+    assert script.prompts[7] == posted_prompt("Sameday")
     assert cell(tracker_file, "D898") == "Sameday-Tsenta"
-
-
-def test_e_date_after_typed_text_asks_source_again(tracker_file):
-    script = Script("e", "", "", "Sameday-Tsenta", "e", "", "", "today", "LinkedIn", "")
-    assert run(tracker_file, NEW_URL, script) == 0
-    assert cell(tracker_file, "D898") == "Posted today-LinkedIn"
 
 
 def test_e_then_s_writes_nothing(tracker_file):
     before = tracker_file.read_bytes()
-    assert run(tracker_file, NEW_URL, Script("e", "Other Co", "", "", "", "s")) == 0
+    assert run(tracker_file, NEW_URL, Script("e", "Other Co", "", "", "s")) == 0
     assert tracker_file.read_bytes() == before
 
 
@@ -199,32 +207,56 @@ class Recorder(Script):
 def test_e_company_position_matching_a_row_is_shown_not_asked(dup_tracker, capsys):
     tracker_file = dup_tracker
     before = tracker_file.read_bytes()
-    script = Recorder(capsys, "e", KNOWN_COMPANY, KNOWN_POSITION, "", "", "s")
+    script = Recorder(capsys, "e", KNOWN_COMPANY, KNOWN_POSITION, "", "s")
     assert run(tracker_file, NEW_URL, script) == 0
-    assert script.prompts[-1] == apply.PAUSE_PROMPT and len(script.prompts) == 6  # no extra question
-    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in script.printed[-1]
+    assert script.prompts[-1] == apply.PAUSE_PROMPT and len(script.prompts) == 5  # no extra question
+    assert f"Already in tracker: row {KNOWN_ROW} · {KNOWN_COMPANY}" in script.printed[-1]
     assert tracker_file.read_bytes() == before
 
 
-def test_duplicate_url_is_shown_with_the_card(dup_tracker, capsys):
-    tracker_file = dup_tracker
-    before = tracker_file.read_bytes()
+def nothing_written(tracker_file, before):
+    return (tracker_file.read_bytes() == before and not tracker.pending_path_for(tracker_file).exists()
+            and not (tracker_file.parent / "pending_sheet.json").exists())
 
-    script = Recorder(capsys, "s")  # the card shows the old row; "s" at the one question
-    assert run(tracker_file, DUP_URL + "?utm_source=Tsenta", script) == 0
-    assert script.prompts == [apply.PAUSE_PROMPT]
+
+@pytest.mark.parametrize("answer", ["", "n", "N", "no", "s"])
+def test_duplicate_url_stops_unless_y(dup_tracker, capsys, answer):
+    before = dup_tracker.read_bytes()
+    script = Recorder(capsys, answer)
+    assert run(dup_tracker, DUP_URL + "?utm_source=Tsenta", script) == 0
+    assert script.prompts == [apply.CONTINUE_PROMPT]  # asked right after the card, nothing else
     out = script.printed[0]
-    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out and "None" not in out  # empty cells stay empty
-    assert out.index("Posted:") < out.index("Already in the tracker:")  # right under the card
-    assert tracker_file.read_bytes() == before
+    assert f"Already in tracker: row {KNOWN_ROW} · {KNOWN_COMPANY} · {KNOWN_POSITION}" in out
+    assert "None" not in out  # empty cells left out
+    assert out.index("Posted:") < out.index("Already in tracker:")  # right under the card
+    assert "Stopped. Tracker not changed." in capsys.readouterr().out
+    assert nothing_written(dup_tracker, before)
 
 
-def test_duplicate_url_is_not_a_question(dup_tracker):
-    tracker_file = dup_tracker
+def test_duplicate_y_continues_and_writes(dup_tracker):
+    script = Script("y", "")
+    assert run(dup_tracker, DUP_URL, script) == 0
+    assert script.prompts == [apply.CONTINUE_PROMPT, apply.PAUSE_PROMPT]
+    assert cell(dup_tracker, "C898") == DUP_URL
+
+
+def test_duplicate_question_comes_before_the_company_question_and_the_form(dup_tracker, tmp_path):
+    (tmp_path / "no-profile.yaml").write_text("name: Test\n", encoding="utf-8")
+    filled = []
+    no_company = JobDetails(None, KNOWN_POSITION, None, company_guess=KNOWN_COMPANY)
     script = Script("")
-    assert run(tracker_file, DUP_URL, script) == 0
-    assert script.prompts == [apply.PAUSE_PROMPT]  # no "Continue anyway?": Enter = applied decides
-    assert cell(tracker_file, "C898") == DUP_URL
+    assert apply.main([DUP_URL, "--tracker", str(dup_tracker)], input_fn=script, fetch=lambda u: no_company,
+                      today=TODAY, fill=lambda *a, **k: filled.append(1)) == 0
+    assert script.prompts == [apply.CONTINUE_PROMPT] and filled == []
+
+
+def test_ctrl_c_at_the_duplicate_question_stops(dup_tracker):
+    before = dup_tracker.read_bytes()
+
+    def interrupt(prompt):
+        raise KeyboardInterrupt
+    assert run(dup_tracker, DUP_URL, interrupt) == 0
+    assert nothing_written(dup_tracker, before)
 
 
 def test_duplicate_company_position_from_the_job_is_shown_with_the_card(dup_tracker, capsys):
@@ -233,22 +265,34 @@ def test_duplicate_company_position_from_the_job_is_shown_with_the_card(dup_trac
         return JobDetails(KNOWN_COMPANY, KNOWN_POSITION, date(2026, 6, 20))
 
     before = tracker_file.read_bytes()
-    script = Recorder(capsys, "s")
+    script = Recorder(capsys, "n")
     assert run(tracker_file, "https://example.com/new-link", script, fetch=fetch_dup) == 0
+    assert script.prompts == [apply.CONTINUE_PROMPT]
     assert f"row {KNOWN_ROW}" in script.printed[0]
     assert tracker_file.read_bytes() == before
 
 
-def test_typed_company_position_matching_a_row_is_shown_not_asked(dup_tracker, capsys):
+def test_typed_company_position_matching_a_row_asks(dup_tracker, tmp_path, capsys):
     tracker_file = dup_tracker
     before = tracker_file.read_bytes()
-    script = Recorder(capsys, KNOWN_COMPANY, KNOWN_POSITION, "s")
-    assert run(tracker_file, "https://example.com/new-link", script,
-               fetch=lambda u: JobDetails(posted_date=date(2026, 6, 20))) == 0
-    assert script.prompts == ["Company: ", "Position: ", apply.PAUSE_PROMPT]
+    (tmp_path / "no-profile.yaml").write_text("name: Test\n", encoding="utf-8")
+    filled = []
+    script = Recorder(capsys, KNOWN_COMPANY, KNOWN_POSITION, "")
+    assert apply.main(["https://example.com/new-link", "--tracker", str(tracker_file)], input_fn=script,
+                      fetch=lambda u: JobDetails(posted_date=date(2026, 6, 20)), today=TODAY,
+                      fill=lambda *a, **k: filled.append(1)) == 0
+    assert script.prompts == ["Company: ", "Position: ", apply.CONTINUE_PROMPT]
     assert "Tracker: no matching link or job found." in script.printed[0]
-    assert f"row {KNOWN_ROW}" in script.printed[2]  # shown before the one question
-    assert tracker_file.read_bytes() == before
+    assert f"row {KNOWN_ROW}" in script.printed[2]  # shown with the question, before the form
+    assert filled == [] and nothing_written(tracker_file, before)
+
+
+def test_typed_company_position_matching_a_row_y_continues(dup_tracker):
+    script = Script(KNOWN_COMPANY, KNOWN_POSITION, "y", "")
+    assert run(dup_tracker, "https://example.com/new-link", script,
+               fetch=lambda u: JobDetails(posted_date=date(2026, 6, 20))) == 0
+    assert script.prompts[-2:] == [apply.CONTINUE_PROMPT, apply.PAUSE_PROMPT]
+    assert cell(dup_tracker, "A898") == KNOWN_COMPANY
 
 
 def test_pending_row_counts_as_already_in_the_tracker(tracker_file, capsys):
@@ -256,7 +300,7 @@ def test_pending_row_counts_as_already_in_the_tracker(tracker_file, capsys):
                          tracker.TrackerRow("Acme Robotics", "Software Engineer I", NEW_URL, "Other", TODAY))
     script = Recorder(capsys, "s")
     assert run(tracker_file, NEW_URL, script) == 0
-    assert "pending_rows.json: Acme Robotics" in script.printed[0]
+    assert "Already in tracker: pending_rows.json · Acme Robotics" in script.printed[0]
     assert len(tracker.load_pending(tracker.pending_path_for(tracker_file))) == 1  # skip: not flushed
 
 
@@ -279,7 +323,7 @@ def test_card_uses_the_company_i_gave_for_the_site(dup_tracker, tmp_path, capsys
     assert run(dup_tracker, ORACLE_URL, script, fetch=no_company) == 0
     out = script.printed[0]
     assert f"\n{KNOWN_COMPANY} · {KNOWN_POSITION} · Oracle Cloud\n" in out
-    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out  # same company + position, found at the card
+    assert f"row {KNOWN_ROW} · {KNOWN_COMPANY}" in out  # same company + position, found at the card
 
 
 def test_companies_yaml_beats_a_page_guess(tracker_file, tmp_path, capsys):
@@ -293,19 +337,21 @@ def test_companies_yaml_beats_a_page_guess(tracker_file, tmp_path, capsys):
 def test_page_guesses_are_shown_and_checked_for_duplicates(dup_tracker, capsys):
     before = dup_tracker.read_bytes()
     guessed = JobDetails(company_guess=KNOWN_COMPANY, position_guess=KNOWN_POSITION)
-    script = Recorder(capsys, "", "", "", "s")  # company, position, posted date, then the one question
+    script = Recorder(capsys, "")  # the guesses match a row: Enter at "Continue anyway?" stops
     assert run(dup_tracker, "https://example.com/careers/42", script, fetch=lambda u: guessed) == 0
+    assert script.prompts == [apply.CONTINUE_PROMPT]
     out = script.printed[0]
     assert f"\n{KNOWN_COMPANY} (from page) · {KNOWN_POSITION} (from page) · Other site\n" in out
-    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in out
+    assert f"row {KNOWN_ROW} · {KNOWN_COMPANY}" in out
     assert dup_tracker.read_bytes() == before
 
 
 def test_accepted_guesses_matching_a_row_are_not_shown_twice(dup_tracker, capsys):
     guessed = JobDetails(posted_date=date(2026, 10, 1), company_guess=KNOWN_COMPANY, position_guess=KNOWN_POSITION)
-    script = Script("", "", "")  # accept both guesses, then applied
+    script = Script("y", "", "", "")  # continue, accept both guesses, then applied
     assert run(dup_tracker, "https://example.com/careers/42", script, fetch=lambda u: guessed) == 0
-    assert capsys.readouterr().out.count(f"row {KNOWN_ROW}:") == 1  # shown once, with the card
+    assert script.prompts.count(apply.CONTINUE_PROMPT) == 1  # asked once, with the card
+    assert capsys.readouterr().out.count(f"row {KNOWN_ROW} ·") == 1  # shown once
     assert cell(dup_tracker, "A898") == KNOWN_COMPANY
 
 
@@ -331,18 +377,20 @@ def no_date(url):
     return JobDetails("Acme Robotics", "Software Engineer I")
 
 
-def test_missing_date_text_is_column_d_as_typed(tracker_file):
-    script = Script(" Sameday  - Tsenta ", "")
+@pytest.mark.parametrize("typed,column_d", [(" Sameday ", "Sameday-Tsenta"),
+                                            (" Sameday  - Tsenta ", "Sameday-Tsenta")])
+def test_missing_date_text_gets_the_source(tracker_file, typed, column_d):
+    script = Script(typed, "")
     assert run(tracker_file, NEW_URL, script, fetch=no_date, extra=["--source", "Tsenta"]) == 0
     assert len(script.prompts) == 2  # no Source question
-    assert cell(tracker_file, "D898") == "Sameday - Tsenta"
+    assert cell(tracker_file, "D898") == column_d
 
 
 def test_missing_date_text_is_kept_by_e(tracker_file):
-    script = Script("Sameday - Tsenta", "e", "", "", "", "")
-    assert run(tracker_file, NEW_URL, script, fetch=no_date) == 0
-    assert script.prompts[4].startswith("Posted date [Sameday - Tsenta] ")
-    assert cell(tracker_file, "D898") == "Sameday - Tsenta"
+    script = Script("Sameday", "e", "", "", "", "")
+    assert run(tracker_file, NEW_URL, script, fetch=no_date, extra=["--source", "LinkedIn"]) == 0
+    assert script.prompts[4] == posted_prompt("Sameday")
+    assert cell(tracker_file, "D898") == "Sameday-LinkedIn"
 
 
 def test_missing_date_not_a_real_date_asks_again(tracker_file, capsys):
@@ -464,7 +512,7 @@ def test_check_shows_the_duplicate_and_writes_nothing(dup_tracker, capsys):
     script = Script()
     assert run(dup_tracker, DUP_URL, script, extra=["--check"]) == 0
     assert script.prompts == []
-    assert f"row {KNOWN_ROW}: {KNOWN_COMPANY}" in capsys.readouterr().out
+    assert f"Already in tracker: row {KNOWN_ROW} · {KNOWN_COMPANY}" in capsys.readouterr().out  # never asked
     assert dup_tracker.read_bytes() == before
     assert tracker.load_pending(tracker.pending_path_for(dup_tracker))  # --check never flushes
 
@@ -479,11 +527,24 @@ def test_duplicate_line_shows_stage_only_when_set(capsys):
         return dict(zip(("Company", "Position", "URL", "Posted date/ Source", "Date", "Outcome", "Stage"), cells))
 
     apply.show_duplicates([
-        (412, values("Acme", "SWE I", "https://x.com/1", "Posted today-Other", "10/3/2026", "Awaiting reply",
+        (412, values("Acme", "SWE I", "https://x.com/1", "Posted today-Other", date(2026, 10, 3), "Awaiting reply",
                      "Interview")),
         ("pending_rows.json", values("Acme", "SWE II", "https://x.com/2", "Posted today-Other", "10/4/2026",
                                      "Applied", "")),
     ])
-    lines = capsys.readouterr().out.splitlines()
-    assert lines[2] == "  row 412: Acme | SWE I | Posted today-Other | 10/3/2026 | Awaiting reply | Interview"
-    assert lines[4] == "  pending_rows.json: Acme | SWE II | Posted today-Other | 10/4/2026 | Applied"
+    assert capsys.readouterr().out.splitlines() == [
+        "Already in tracker: row 412 · Acme · SWE I · applied 10/03/2026 · Awaiting reply · Interview",
+        "Already in tracker: pending_rows.json · Acme · SWE II · applied 10/4/2026 · Applied",
+    ]
+
+
+def test_duplicate_lines_capped_at_3(capsys):
+    hits = [(r, {"Company": f"Co {r}", "Position": "SWE", "Date": None, "Outcome": "Rejected", "Stage": None})
+            for r in range(10, 15)]
+    apply.show_duplicates(hits)
+    assert capsys.readouterr().out.splitlines() == [
+        "Already in tracker: row 10 · Co 10 · SWE · Rejected",
+        "Already in tracker: row 11 · Co 11 · SWE · Rejected",
+        "Already in tracker: row 12 · Co 12 · SWE · Rejected",
+        "+2 more",
+    ]

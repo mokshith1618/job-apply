@@ -498,13 +498,92 @@ def test_attention_items_kinds():
     assert [text for _, text in items] == metrics.attention(ATTENTION_ROWS, S, TODAY)
 
 
-def test_totals_and_pipeline():
+def test_totals():
     rows = [F(), F(), F(outcome="Rejected"),
             F(outcome="Awaiting reply", stage="Initial Screening"), F(outcome="Applied", stage="Interview"),
             F(outcome="In progress", stage="Online Assessment"), F(outcome="Rejected", stage="Interview")]
     assert metrics.totals(rows) == metrics.Totals(applied=7, responses=4, awaiting=2, rejected=2)
-    assert metrics.pipeline(rows) == [("Applied", 7), ("Responses", 4), ("Initial Screening", 3), ("Interview", 2)]
-    assert metrics.pipeline([]) == [("Applied", 0), ("Responses", 0), ("Initial Screening", 0), ("Interview", 0)]
+
+
+# Rows for every band of "Where your applications went" (TODAY = Oct 28, no_reply_days = 30).
+FLOW_ROWS = [
+    F(outcome="In progress", stage="Online Assessment"), F(outcome="In progress", stage="Online Assessment"),
+    F(outcome="Awaiting reply", stage="Online Assessment"),
+    F(outcome="Rejected", stage="Initial Screening"),
+    F(outcome="Applied", stage="Interview"),  # old model: Stage set, Outcome Applied = awaiting reply
+    F(outcome="In progress", stage="Interview"),
+    F(outcome="Rejected"), F(outcome="Rejected"), F(outcome="Rejected"),  # rejected, no response
+    F(applied=d(10, 20)), F(applied=d(10, 20)),  # 8 days
+    F(applied=d(9, 28)),  # exactly 30 days: not over, like the "No reply" section
+    F(applied=None),  # no readable Date: not counted as old
+    F(outcome="", applied=d(10, 1)),  # blank Outcome, no Stage: no reply yet
+    F(applied=d(9, 27)),  # 31 days
+    F(outcome="Awaiting reply", applied=d(8, 1)),  # no Stage: no reply yet, 88 days
+]
+
+
+def columns(part):
+    return [[(nd.key, nd.name, nd.count, nd.cls) for nd in col] for col in part.columns]
+
+
+def bands(part):
+    return [(b.source, b.target, b.count) for b in part.bands]
+
+
+def test_flow_counts():
+    f = metrics.flow(FLOW_ROWS, S)
+    assert columns(f.left) == [
+        [("all", "Applications", 16, "total")],
+        [("responded", "Responded", 6, "responded"), ("rejected", "Rejected, no response", 3, "rejected"),
+         ("quiet", "No reply yet", 7, "noreply")],
+        [("new", "Under 30 days", 5, "new"), ("old", "30+ days", 2, "old")]]
+    assert bands(f.left) == [("all", "responded", 6), ("all", "rejected", 3), ("all", "quiet", 7),
+                             ("quiet", "new", 5), ("quiet", "old", 2)]
+    assert f.responses == 6
+    assert columns(f.right) == [
+        [("responded", "Responded", 6, "responded")],
+        [("stage:Online Assessment", "Online Assessment", 3, "responded"),
+         ("stage:Initial Screening", "Initial Screening", 1, "responded"),
+         ("stage:Interview", "Interview", 2, "responded")],
+        [("outcome:In progress", "In progress", 3, "progress"),
+         ("outcome:Awaiting reply", "Awaiting reply", 2, "awaiting"),
+         ("outcome:Rejected after response", "Rejected", 1, "rejected")]]
+    assert bands(f.right) == [
+        ("responded", "stage:Online Assessment", 3), ("responded", "stage:Initial Screening", 1),
+        ("responded", "stage:Interview", 2),
+        ("stage:Online Assessment", "outcome:In progress", 2), ("stage:Online Assessment", "outcome:Awaiting reply", 1),
+        ("stage:Initial Screening", "outcome:Rejected after response", 1),
+        ("stage:Interview", "outcome:In progress", 1), ("stage:Interview", "outcome:Awaiting reply", 1)]
+
+
+def test_flow_leaves_out_empty_nodes_and_bands():
+    f = metrics.flow([F(applied=d(10, 20)), F(outcome="Awaiting reply", stage="Interview")], S)
+    assert columns(f.left) == [[("all", "Applications", 2, "total")],
+                               [("responded", "Responded", 1, "responded"), ("quiet", "No reply yet", 1, "noreply")],
+                               [("new", "Under 30 days", 1, "new")]]
+    assert bands(f.left) == [("all", "responded", 1), ("all", "quiet", 1), ("quiet", "new", 1)]
+    assert columns(f.right)[1:] == [[("stage:Interview", "Interview", 1, "responded")],
+                                    [("outcome:Awaiting reply", "Awaiting reply", 1, "awaiting")]]
+    assert bands(f.right) == [("responded", "stage:Interview", 1), ("stage:Interview", "outcome:Awaiting reply", 1)]
+
+
+def test_flow_split_follows_no_reply_days():
+    rows = [F(applied=d(10, 20)), F(applied=d(10, 17)), F(applied=d(10, 1))]  # 8, 11, 27 days
+    f = metrics.flow(rows, Settings(no_reply_days=10))
+    assert columns(f.left)[2] == [("new", "Under 10 days", 1, "new"), ("old", "10+ days", 2, "old")]
+    assert metrics.no_reply(rows, Settings(no_reply_days=10), TODAY)[0] == 2  # the same rule
+
+
+def test_flow_other_stage_after_the_known_ones():
+    f = metrics.flow([F(stage="Phone call", outcome="In progress"), F(stage="Interview", outcome="In progress")], S)
+    assert [nd.name for nd in f.right.columns[1]] == ["Interview", "Phone call"]
+
+
+def test_flow_no_responses_and_no_rows():
+    f = metrics.flow([F(), F(outcome="Rejected")], S)
+    assert f.right is None and f.responses == 0
+    assert [nd.key for nd in f.left.columns[1]] == ["rejected", "quiet"]
+    assert metrics.flow([], S) is None
 
 
 def test_top_companies_rejected_with_no_response():
@@ -516,10 +595,10 @@ def test_top_companies_rejected_with_no_response():
 
 # ---------- render ----------
 
-SECTIONS = ["highlights", "today", "this-week", "totals", "attention", "weekly", "monthly", "pipeline", "responses", "top",
+SECTIONS = ["highlights", "today", "this-week", "totals", "attention", "weekly", "flow", "monthly", "responses", "top",
             "no-reply", "details", "data-check"]
-HEADINGS = ["Highlights", "Today", "This week", "Totals", "Needs your attention", "Weekly", "Monthly", "Pipeline",
-            "Your responses (", "Top 10 companies, with outcomes", "No reply after 30 days", "More details",
+HEADINGS = ["Highlights", "Today", "This week", "Totals", "Needs your attention", "Weekly",
+            "Where your applications went", "Monthly", "Your responses (", "Top 10 companies, with outcomes", "No reply after 30 days", "More details",
             "Data check ("]
 GENERATED = datetime(2026, 10, 28, 9, 5)
 
@@ -546,6 +625,7 @@ def test_sections_present_with_no_rows():
     html = page([])
     assert re.findall(r'<section id="([^"]+)"', html) == SECTIONS
     assert "No applications yet." in section(html, "monthly") and "No responses yet." in section(html, "responses")
+    assert "No applications yet." in section(html, "flow") and "<svg" not in section(html, "flow")
 
 
 def test_tracker_text_is_escaped():
@@ -732,11 +812,121 @@ def test_monthly_chart():
     assert ">Nov 2025<" in wide and ">Jan 2026<" in wide and ">Feb<" in wide  # a year on the first and each Jan
 
 
-def test_pipeline_strip():
-    rows = [F(), F(stage="Online Assessment"), F(stage="Initial Screening"), F(stage="Interview")]
-    pipe = section(page(rows), "pipeline")
-    assert re.findall(r'<span class="step-value">(\d+)</span><span class="step-label">([^<]+)</span>', pipe) == [
-        ("4", "Applied"), ("3", "Responses"), ("2", "Initial Screening"), ("1", "Interview")]
+def sankeys(html):
+    """{"wide": svg, "narrow": svg} of the flow section."""
+    return {m.group(1): m.group(0)
+            for m in re.finditer(r'<svg class="chart sankey (\w+)".*?</svg>', section(html, "flow"), re.S)}
+
+
+def labels(svg):
+    """Each node's label, its lines joined with a space."""
+    return [" ".join(re.findall(r"<tspan[^>]*>([^<]*)</tspan>", t))
+            for t in re.findall(r'<text class="sk-label">(.*?)</text>', svg)]
+
+
+def test_flow_section():
+    html = page(FLOW_ROWS)
+    flow = section(html, "flow")
+    svg = sankeys(html)
+    assert list(svg) == ["wide", "narrow"]
+    for shape, chart in svg.items():
+        assert labels(chart) == [
+            "Applications · 16", "Responded · 6", "Rejected, no response · 3", "No reply yet · 7",
+            "Under 30 days · 5", "30+ days · 2",
+            "Responded · 6", "Online Assessment · 3", "Initial Screening · 1", "Interview · 2",
+            "In progress · 3", "Awaiting reply · 2", "Rejected · 1"], shape
+        assert chart.count('<path class="sk-band') == 5 + 8  # every band with rows, nothing else
+        assert chart.count('<rect class="sk-node') == 6 + 7
+        assert "<title>Applications -&gt; Responded: 6</title>" in chart
+        assert "<title>No reply yet -&gt; Under 30 days: 5</title>" in chart
+        assert "<title>Online Assessment -&gt; Awaiting reply: 1</title>" in chart
+        assert '<path class="sk-bracket"' in chart and ">zoomed in: 6 responses</text>" in chart
+        for cls in ("sk-total", "sk-responded", "sk-rejected", "sk-noreply", "sk-new", "sk-old", "sk-progress",
+                    "sk-awaiting"):
+            assert f'class="sk-node {cls}"' in chart, cls
+    assert "Stage shows the furthest step each application reached. The right side is zoomed in." in flow
+    assert "No responses yet." not in flow
+    assert html.index('id="weekly"') < html.index('id="flow"') < html.index('id="monthly"')
+    assert 'class="pipeline"' not in html and "step-value" not in html  # the strip is gone
+
+
+def test_flow_section_without_responses():
+    html = page([F(), F(outcome="Rejected")])
+    flow = section(html, "flow")
+    for chart in sankeys(html).values():
+        assert labels(chart) == ["Applications · 2", "Rejected, no response · 1", "No reply yet · 1",
+                                 "Under 30 days · 1"]  # F() applied Oct 1: 27 days
+        assert "sk-bracket" not in chart and "zoomed in" not in chart
+    assert "No responses yet." in flow and "zoomed in" not in flow and "The right side" not in flow
+
+
+def test_flow_labels_wrap_on_phones():
+    narrow = sankeys(page(FLOW_ROWS))["narrow"]
+    assert "<tspan" in narrow and ">Rejected, no</tspan>" in narrow and ">response · 3</tspan>" in narrow
+
+
+def test_flow_tracker_text_is_escaped():
+    html = page([F(stage="<script>alert(1)</script>", outcome="In progress"), F()])
+    assert "<script" not in html
+    chart = sankeys(html)["wide"]
+    assert "&lt;script&gt;alert(1)&lt;/script&gt; · 1" in chart
+    assert "<title>Responded -&gt; &lt;script&gt;alert(1)&lt;/script&gt;: 1</title>" in chart
+
+
+def test_flow_no_external_requests():
+    flow = section(page(FLOW_ROWS), "flow")
+    for banned in ("<script", "<link", "@import", "url(", "javascript:", "<img", "src=", "href", "http"):
+        assert banned not in flow.lower(), banned
+
+
+def part(cols, bands_):
+    return metrics.FlowPart([[metrics.FlowNode(k, k, c, "total") for k, c in col] for col in cols],
+                            [metrics.FlowBand(a, b, c) for a, b, c in bands_])
+
+
+def test_flow_bands_and_nodes_at_least_3px():
+    tiny = part([[("all", 10_000)], [("big", 9_999), ("one", 1)]], [("all", "big", 9_999), ("all", "one", 1)])
+    for wrap in (None, 18):
+        p_ = render.sankey_part(tiny, 0, 40, 220, wrap)
+        assert min(b["w"] for b in p_["bands"]) == render.SK_MIN
+        assert all(float(nd["h"]) >= render.SK_MIN for nd in p_["nodes"])
+        one = next(b for b in p_["bands"] if b["tip"] == "all -> one: 1")
+        assert one["w"] == 3
+
+
+def test_band_width_proportional_within_its_part():
+    p_ = render.sankey_part(part([[("all", 30)], [("a", 20), ("b", 10)]], [("all", "a", 20), ("all", "b", 10)]),
+                            0, 40, 220, None)
+    a, b = (next(x["w"] for x in p_["bands"] if x["tip"].startswith(f"all -> {k}")) for k in "ab")
+    assert a == pytest.approx(2 * b)
+
+
+LONG = "Very Long Stage Name For A Small Company Process"
+
+
+@pytest.mark.parametrize("shape", [render.WIDE, render.NARROW])
+def test_flow_labels_never_overlap(shape):
+    rows = FLOW_ROWS + [F(stage=f"{LONG} {i}", outcome=o) for i in range(3)
+                        for o in ("In progress", "Rejected", "Awaiting reply")]
+    rows += [F(applied=d(10, 27))] * 400  # one big band next to small ones
+    chart = render.sankey(metrics.flow(rows, S), shape)
+    boxes, rects = [], []
+    for p_ in chart["parts"]:
+        for nd in p_["nodes"]:
+            boxes.append(nd["box"])
+            x, y, h = float(nd["x"]), float(nd["y"]), float(nd["h"])
+            rects.append(render.Box(x, y, x + nd["w"], y + h))
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            assert not a.overlaps(b), (a, b)
+        for r in rects:
+            assert not a.overlaps(r), (a, r)  # a label never covers a node
+    if chart["bracket"]:
+        note = render.Box(float(chart["bracket"]["x"]), float(chart["bracket"]["y"]) - render.SK_FONT,
+                          float(chart["bracket"]["x"]) + len(chart["bracket"]["text"]) * render.SK_CHAR,
+                          float(chart["bracket"]["y"]) + 3)
+        assert not any(note.overlaps(b) for b in boxes + rects)
+    assert all(b.x0 >= 0 and b.x1 <= chart["width"] and b.y0 >= 0 and b.y1 <= chart["height"] for b in boxes)
 
 
 def test_response_cards_and_pills():
@@ -851,6 +1041,9 @@ def test_report_end_to_end(tracker_file, report_env):
         "Blank Position (1)",
         "Data check (2)",
         "from tracker.xlsx · 896 rows",
+        "Applications · 896",
+        "Responded · 5",
+        "zoomed in: 5 responses",
     ]:
         assert text in html, text
     assert "+1 more" not in html and "<script" not in html and "Updates today" not in html

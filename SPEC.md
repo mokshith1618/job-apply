@@ -32,8 +32,9 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
 0. **Job facts card first.** Right after I give the link: detect the system (step 1), read the
    job details and description (step 3, without asking me anything yet), print the job facts
    card (see below), run the duplicate check (step 2) and print its result under the card.
-   Then straight on, with no question in between: missing details, the form, and the one
-   question at the end (step 6). There is only one "did I apply" question: the last one.
+   If it found a match, ask `Continue anyway? [y/N] ` right there, before any other question
+   or the form. Otherwise, or after `y`, go straight on: missing details, the form, and the
+   question at the end (step 6).
 
 1. **Detect the system** from the URL:
    - Greenhouse: `job-boards.greenhouse.io`, `boards.greenhouse.io`, or a `gh_jid=` parameter
@@ -53,9 +54,15 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    - anything else: `other`
 2. **Duplicate check.** Compare the URL (with tracking parameters such as `utm_*`,
    `source`, `gh_src` and iCIMS display params like `mobile`, `width`, `in_iframe` removed) and company + position against the tracker. This
-   runs with the card: matching rows (or "no matching link or job found") print under it.
-   If I type the company or position later (the job didn't give them) and that pair matches
-   another row, show it too. Never a question: my answer at the end (step 6) is the decision.
+   runs with the card: under it, one short line per matching row, at most 3, then `+N more`:
+   `Already in tracker: row 812 · Acme · Software Engineer I · applied 09/30/2026 · Rejected`
+   (the Stage is added when set; a row still in a pending file shows the file name instead of
+   the row). Then it asks `Continue anyway? [y/N] `: Enter or `n` stops the run
+   (`Stopped. Tracker not changed.`), writing nothing; `y` goes on. No match: the one line
+   `Tracker: no matching link or job found.` and no question. `--check` shows the lines and
+   never asks. If I type the company or position later (the job didn't give them) and that
+   pair matches another row, the same lines and question come before the form opens. A
+   match after an `e` edit at the end is only shown: my answer there decides.
 3. **Read job details:** company, position, posted date.
    - Greenhouse, Ashby, Lever: their public job board APIs (confirm the exact date field
      for each when building).
@@ -91,9 +98,10 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
    - Still missing: ask me in the terminal. Company and position guesses from `og:site_name`,
      `og:title`, `<h1>` and `<title>` are offered as defaults (Enter accepts). A JSON-LD company
      that needs tidying ("JPMC Candidate Experience page", Workday's "2100 NVIDIA USA") is also
-     only a guess. The posted date is never guessed. At the posted-date question I can type
-     `today`, `YYYY-MM-DD`, blank (unknown), or any other text (e.g. `Sameday - Tsenta`), which
-     goes to column D exactly as typed. A `YYYY-MM-DD` that isn't a real date asks again.
+     only a guess. The posted date is never guessed. At the posted-date question I type only
+     the posted part: `today` (= `Posted today`), `YYYY-MM-DD` (= `Posted November 5, 2026`),
+     blank (unknown), or any other text (e.g. `Sameday`), kept as typed. A `YYYY-MM-DD` that
+     isn't a real date asks again. The source is never asked: it is always `--source`.
    - Company still missing (e.g. HPE's Workday leaves it blank everywhere): use the name I gave
      this careers site before, from `companies.yaml`. Otherwise ask me, suggesting the name in
      the link (`hpe.wd5.myworkdayjobs.com` -> `HPE`), and save my answer for the site. Only
@@ -115,17 +123,25 @@ Ctrl+C or end of input there prints `Stopped.`. This is the only question before
      terminal, and ask me for the answer. Offer to save it to `answers.yaml`.
    - Unknown optional field: leave blank and list it at the end.
 6. **Pause.** Print a summary (filled, skipped, needs attention) and:
-   `Review the form and click Submit yourself. Then press Enter = applied, s = skipped, e = edit details.`
-   - `e` (optional) asks Company, Position, Posted date and Source again, each showing its
-     current value: Enter keeps it, typing replaces it (`today`, `YYYY-MM-DD`, or `-` = unknown
-     for the date; the source is read like `--source`). Any other text at the date question
-     (e.g. `Sameday-Tsenta`) is written to column D exactly as typed, and Source isn't asked;
-     a later `e` shows that text and Enter keeps it. A `YYYY-MM-DD` that isn't a real date
-     asks again. The URL can't be edited. The row summary
+   `Enter = applied, s = skipped, e = edit details: ` (I review the form and click Submit myself first).
+   - `e` (optional) asks Company, Position and Posted again, each showing its current value:
+     Enter keeps it, typing replaces it. For Posted I type only the posted part, as at the
+     posted-date question (`today`, `YYYY-MM-DD`, other text as typed, `-` = unknown); a
+     `YYYY-MM-DD` that isn't a real date asks again. The source is never asked (it is
+     `--source`), and the URL can't be edited. The row summary
      is printed again; if company or position changed, matching tracker rows are shown (no
      question). Then the same question again; `e` can be used more than once. The edits are for
      this row only (`companies.yaml` is not changed).
-7. **Write the tracker row** only if I pressed Enter.
+   - The row summary shows Posted and Source as two lines:
+     ```
+       Posted:   Posted today
+       Source:   Tsenta
+     ```
+7. **Write the tracker row** only if I pressed Enter. Column D is `{Posted}-{Source}`
+   (`Posted today-Tsenta`, `Posted November 5, 2026-Tsenta`, `Sameday-Tsenta`). If the posted
+   text I typed already ends with `-{Source}` (any case, spaces around `-` allowed), the source
+   isn't added twice (`Sameday - Tsenta` -> `Sameday-Tsenta`). Posted unknown: the source alone.
+   Existing rows are never changed.
 
 ## Job facts card (milestone 1d)
 
@@ -180,9 +196,8 @@ Seniority:
 Posted:
   October 19, 2026, 8:12 AM (6 hours ago)
 
-Already in the tracker:
-  row 412: Acme | Software Engineer I | Posted October 2, 2026-LinkedIn | 10/03/2026 | Rejected
-           https://job-boards.greenhouse.io/acme/jobs/1234567
+Already in tracker: row 412 · Acme · Software Engineer I · applied 10/03/2026 · Rejected
+Continue anyway? [y/N]
 ```
 
 Rules for the text:
@@ -708,17 +723,38 @@ week that got a response, a dashed line at `weekly_target`. Week labels `Oct 20`
 numbers on hover (SVG `<title>`) and in a small table under a "Show numbers" toggle.
 Bars at or above the target are drawn brighter.
 
-**7. Monthly** (chart, the last 12 months with applications, oldest left)
+**7. Where your applications went** (a Sankey diagram; replaces the old pipeline strip)
+Inline SVG drawn by our own code: no libraries, no external requests. Two parts, each to its
+own scale:
+- Left: `Applications` (all rows) -> `Responded` (any Stage) / `Rejected, no response`
+  (Outcome Rejected, no Stage) / `No reply yet` (every other row: no Stage and not Rejected,
+  so blank or Awaiting reply / In progress with no Stage count here too). `No reply yet` ->
+  `Under {no_reply_days} days` / `{no_reply_days}+ days` by Date, the same rule as section 11
+  (more than `no_reply_days` days; a row with no readable Date counts as under).
+- Right, zoomed in: `Responded` drawn again at its own scale so small counts are readable ->
+  each Stage (Online Assessment, Initial Screening, Interview, then any other Stage text; the
+  Stage is the furthest step reached) -> `In progress` / `Awaiting reply` / `Rejected` by
+  status group (Stage set with Outcome Applied counts as Awaiting reply).
+- Between the parts a dashed bracket labeled `zoomed in: {n} responses`. On narrow windows the
+  zoomed part is drawn below the left part, with the bracket above it, and long labels wrap.
+- Nodes and bands with 0 rows are left out. No responses at all: only the left part and
+  `No responses yet.`; no rows: `No applications yet.`
+- Band width proportional to its count within its part, at least 3px. Every node labeled
+  `Name · count`; hover on a band (SVG `<title>`) shows `From -> To: count`. Labels never
+  overlap each other or a node (a node moves down to make room for its label).
+- Colors from the CSS variables: green Responded and its stages, blue In progress, amber
+  Awaiting reply, muted red Rejected, grey No reply yet and `{n}+ days`, lighter grey
+  (`--grey-light`) `Under {n} days`, neutral Applications. Bands take their target's color,
+  lighter.
+- Caption: `Stage shows the furthest step each application reached. The right side is zoomed
+  in.` (left out when there are no responses).
+
+**8. Monthly** (chart, the last 12 months with applications, oldest left)
 Small paired bars per month: applications (neutral) and responses (green), labels `Oct`
 (`Jan 2026` style when the year changes). Exact numbers on hover (SVG `<title>`) and, under
 "Show numbers", the table of every month, newest first: Month · Applications · Responses ·
 Rejected · Response rate. Response rate as `5 of 128 (3.9%)`; when applications < `min_group`,
 counts only.
-
-**8. Pipeline** (a strip of 4 steps with counts)
-Applied → Responses → Initial Screening → Interview. Counts are "reached at least": Initial
-Screening = Stage Initial Screening or Interview; Interview = Stage Interview. Online Assessment
-counts only toward Responses.
 
 **9. Your responses** (cards, every row with a Stage, newest applied first)
 Heading shows the count: `Your responses (12)`. Each card: Company (bold), Position below,
@@ -759,7 +795,8 @@ Footer: `Generated {date time} from {file name} · {n} rows`.
 - System font, max width about 960px, generous spacing, one column on narrow windows.
 - Light and dark mode follow the system (`prefers-color-scheme`), colors as CSS variables.
 - Color only carries meaning: green = response, blue = in progress, amber = follow up,
-  muted red = rejected, grey = no news. Everything else neutral.
+  muted red = rejected, grey = no news (lighter grey: no news yet, under `no_reply_days`).
+  Everything else neutral.
 - Numbers rounded (1.3%, not 1.29%); dates `Oct 20` in charts, `10/20/2026` in tables.
 - Job links in tables and cards are clickable and open in a new tab, shown as the domain only.
 - All text from the tracker is HTML-escaped.
@@ -774,8 +811,8 @@ imported instead of it.
 | `report.py` | entry point and options |
 | `reporting/load.py` | settings; rows read-only by header name (`tracker.read_rows` / `sheet_tracker.read_rows`), handles `=HYPERLINK` |
 | `reporting/derive.py` | derived fields, small pure functions |
-| `reporting/metrics.py` | summary values, this week, attention list, weekly and monthly series, responses, top companies, no-reply, details, data check |
-| `reporting/render.py` | fills the page template: values and chart geometry, no markup; embeds the CSS in a `<style>` block so the page stays one file |
+| `reporting/metrics.py` | summary values, this week, attention list, weekly and monthly series, the Sankey counts (`flow`), responses, top companies, no-reply, details, data check |
+| `reporting/render.py` | fills the page template: values and chart geometry (the Sankey layout included), no markup; embeds the CSS in a `<style>` block so the page stays one file |
 | `reporting/templates/report.html.j2` | the page as a Jinja2 template, autoescape on (every tracker text escaped) |
 | `reporting/static/report.css` | all CSS; colors, spacing, font sizes and radii as variables at the top |
 | `report.yaml` | settings |

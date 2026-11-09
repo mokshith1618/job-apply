@@ -175,6 +175,152 @@ def monthly_chart(months: list[metrics.Month], shape: str = WIDE) -> dict:
             "zero_y": n(y(0)), "top_value": top_value, "top_y": n(y(top_value) + 8), "label_y": height - 8}
 
 
+# ---------- 6. where your applications went (Sankey) ----------
+
+SK_FONT = 12  # label font size (--text-chart), in SVG units
+SK_CHAR = 0.6 * SK_FONT  # estimated width of one character; generous, so labels never collide
+SK_LINE = 15  # label line height
+SK_NODE_W = 10
+SK_GAP = 10  # between nodes in a column
+SK_MIN = 3  # thinnest band or node, in px
+SK_PAD = 6  # node to its label
+SK_RUN = 24  # band left visible after the widest label of a column
+SK_FIRST_RUN = 48  # the first column's label sits above its node, so its bands need less room
+SK_TOP = 40  # room above the nodes: the first column's label (and the bracket's note)
+SK_WRAP = {WIDE: None, NARROW: 18}  # characters per label line; None = one line
+SK_HEIGHT = {WIDE: 220, NARROW: 200}  # height the counts of a part are scaled to
+
+
+@dataclass
+class Box:
+    """A label's estimated area, for the overlap checks."""
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+    def overlaps(self, other: "Box") -> bool:
+        return self.x0 < other.x1 and other.x0 < self.x1 and self.y0 < other.y1 and other.y0 < self.y1
+
+
+def label_lines(name: str, count: int, wrap: int | None) -> list[str]:
+    """'Name · count', wrapped at spaces to `wrap` characters; the count stays with its dot."""
+    words = name.split() + [f"· {count}"]
+    if wrap is None:
+        return [" ".join(words)]
+    lines = [words[0]]
+    for w in words[1:]:
+        if len(lines[-1]) + 1 + len(w) <= wrap:
+            lines[-1] += " " + w
+        else:
+            lines.append(w)
+    return lines
+
+
+def text_width(lines: list[str]) -> float:
+    return max(len(line) for line in lines) * SK_CHAR
+
+
+def sankey_part(part: metrics.FlowPart, x0: float, top: float, height: float, wrap: int | None) -> dict:
+    """Lay out one part: nodes, bands as filled ribbons, labels right of each node (the first
+    column's above it). Counts are scaled to `height` within this part; bands and nodes are at
+    least SK_MIN px; a node is moved down when its label would touch the one above."""
+    total = sum(nd.count for nd in part.columns[0])
+    most = max(len(col) for col in part.columns)
+    px = (height - (most - 1) * SK_GAP) / total
+    widths = {id(b): max(b.count * px, SK_MIN) for b in part.bands}
+    out = {nd.key: [b for b in part.bands if b.source == nd.key] for col in part.columns for nd in col}
+    into = {nd.key: [b for b in part.bands if b.target == nd.key] for col in part.columns for nd in col}
+    order = {nd.key: (i, j) for i, col in enumerate(part.columns) for j, nd in enumerate(col)}
+    lines = {nd.key: label_lines(nd.name, nd.count, None if i == 0 else wrap)
+             for i, col in enumerate(part.columns) for nd in col}
+
+    xs = [x0]
+    for i, col in enumerate(part.columns[:-1]):
+        run = SK_FIRST_RUN if i == 0 else SK_PAD + max(text_width(lines[nd.key]) for nd in col) + SK_RUN
+        xs.append(xs[-1] + SK_NODE_W + run)
+
+    placed, start_y, end_y, boxes = {}, {}, {}, []
+    for i, col in enumerate(part.columns):
+        node_bottom, label_bottom = None, top - 4
+        for nd in col:
+            h = max(nd.count * px, SK_MIN, sum(widths[id(b)] for b in out[nd.key]),
+                    sum(widths[id(b)] for b in into[nd.key]))
+            lh = len(lines[nd.key]) * SK_LINE
+            ideal = min((start_y[id(b)] for b in into[nd.key]), default=top)
+            y = max(ideal, top if node_bottom is None else node_bottom + SK_GAP)
+            if i > 0:
+                y = max(y, label_bottom + lh / 2 - h / 2)
+            node_bottom = y + h
+            placed[nd.key] = {"x": xs[i], "y": y, "h": h, "node": nd}
+            if i == 0:  # above the node
+                lx, ly0 = xs[i], top - 10 - SK_FONT
+            else:
+                lx, ly0 = xs[i] + SK_NODE_W + SK_PAD, y + h / 2 - lh / 2
+                label_bottom = ly0 + lh + 4
+            box = Box(lx, ly0, lx + text_width(lines[nd.key]), ly0 + len(lines[nd.key]) * SK_LINE)
+            placed[nd.key].update(lx=lx, ly0=ly0, box=box)
+            boxes.append((i, box))
+            # where this node's bands leave it, in the order of their targets
+            offset = y
+            for b in sorted(out[nd.key], key=lambda b: order[b.target]):
+                start_y[id(b)] = offset
+                offset += widths[id(b)]
+        for nd in col:  # where bands arrive, in the order of their sources
+            offset = placed[nd.key]["y"]
+            for b in sorted(into[nd.key], key=lambda b: order[b.source]):
+                end_y[id(b)] = offset
+                offset += widths[id(b)]
+
+    names = {k: v["node"].name for k, v in placed.items()}
+    bands = []
+    for b in part.bands:
+        sx, tx = placed[b.source]["x"] + SK_NODE_W, placed[b.target]["x"]
+        sy, ty, w = start_y[id(b)], end_y[id(b)], widths[id(b)]
+        mid = (sx + tx) / 2
+        d = (f"M{n(sx)},{n(sy)} C{n(mid)},{n(sy)} {n(mid)},{n(ty)} {n(tx)},{n(ty)} "
+             f"L{n(tx)},{n(ty + w)} C{n(mid)},{n(ty + w)} {n(mid)},{n(sy + w)} {n(sx)},{n(sy + w)} Z")
+        bands.append({"d": d, "cls": placed[b.target]["node"].cls, "w": w,
+                      "tip": f"{names[b.source]} -> {names[b.target]}: {b.count}"})
+    nodes = []
+    for key, v in placed.items():
+        node = v["node"]
+        nodes.append({"x": n(v["x"]), "y": n(v["y"]), "w": SK_NODE_W, "h": n(v["h"]), "cls": node.cls,
+                      "tip": f"{node.name}: {node.count}", "lx": n(v["lx"]),
+                      "lines": [{"text": t, "y": n(v["ly0"] + k * SK_LINE + SK_FONT)}
+                                for k, t in enumerate(lines[key])],
+                      "box": v["box"], "column": order[key][0]})
+    right = max([b.x1 for _, b in boxes] + [v["x"] + SK_NODE_W for v in placed.values()])
+    bottom = max([b.y1 for _, b in boxes] + [v["y"] + v["h"] for v in placed.values()])
+    return {"nodes": nodes, "bands": bands, "right": right, "bottom": bottom}
+
+
+def sankey(f: metrics.Flow, shape: str = WIDE) -> dict:
+    """The left part, then the zoomed-in Responded part: beside it on desktop with a dashed bracket
+    between them, below it on phones with a dashed bracket above it."""
+    wrap, height = SK_WRAP[shape], SK_HEIGHT[shape]
+    parts = [sankey_part(f.left, 0, SK_TOP, height, wrap)]
+    bracket = None
+    if f.right is not None:
+        note = f"zoomed in: {metrics.plural(f.responses, 'response')}"
+        if shape == WIDE:
+            xb = parts[0]["right"] + 28
+            right = sankey_part(f.right, xb + 16, SK_TOP, height, wrap)
+            y0, y1 = SK_TOP - 4, right["bottom"]
+            bracket = {"d": f"M{n(xb + 8)},{n(y0)} L{n(xb)},{n(y0)} L{n(xb)},{n(y1)} L{n(xb + 8)},{n(y1)}",
+                       "x": n(xb), "y": n(SK_TOP - 30), "text": note}
+        else:
+            yb = parts[0]["bottom"] + 34
+            right = sankey_part(f.right, 0, yb + SK_TOP - 6, height, wrap)
+            x1 = max(parts[0]["right"], right["right"])
+            bracket = {"d": f"M0,{n(yb + 8)} L0,{n(yb)} L{n(x1)},{n(yb)} L{n(x1)},{n(yb + 8)}",
+                       "x": "0", "y": n(yb - 8), "text": note}
+        parts.append(right)
+    width = max(p["right"] for p in parts) + 4
+    return {"shape": shape, "parts": parts, "bracket": bracket, "width": round(width),
+            "height": round(max(p["bottom"] for p in parts) + 8)}
+
+
 def weekly_numbers(weeks: list[metrics.Week]) -> Table:
     return Table(["Week of", "Applications", "Responses"],
                  [[short_day(w.start), str(w.applications), str(w.responses)] for w in reversed(weeks)],
@@ -260,6 +406,7 @@ def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, sou
     issues = metrics.data_check(rows, settings, excel)
     responses = metrics.responses(rows)
     months = metrics.monthly(rows, settings)
+    flow = metrics.flow(rows, settings)
     stamp = f"{generated:%m/%d/%Y} {generated.hour % 12 or 12}:{generated:%M %p}"
     return ENV.get_template("report.html.j2").render(
         css=Markup((HERE / "static" / "report.css").read_text(encoding="utf-8")),
@@ -271,9 +418,10 @@ def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, sou
         attention_shown=shown, attention_more=more,
         weekly=[weekly_chart(weeks, settings.weekly_target, shape) for shape in (WIDE, NARROW)],
         weekly_numbers=weekly_numbers(weeks),
+        flow=[sankey(flow, shape) for shape in (WIDE, NARROW)] if flow else None,
+        flow_responses=flow.responses if flow else 0,
         monthly=[monthly_chart(months, shape) for shape in (WIDE, NARROW)] if months else None,
         monthly_numbers=monthly_table(months),
-        pipeline=metrics.pipeline(rows),
         responses=response_cards(responses, settings),
         top=company_bars(metrics.top_companies(rows, settings)),
         no_reply_days=settings.no_reply_days, no_reply_total=metrics.plural(total, "application"),
