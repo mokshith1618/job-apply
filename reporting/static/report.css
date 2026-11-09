@@ -179,6 +179,24 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-wrap { overflow-x: auto; }
 footer { margin-top: var(--space-7); }
 
+/* ---------- 0. search ---------- */
+#search { margin: 0 0 var(--space-4); }
+#search-box { width: 100%; font: inherit; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--radius-pill); padding: var(--space-2) var(--space-4); }
+#search-box:focus { outline: 2px solid var(--fill); outline-offset: 1px; }
+#search-results { display: flex; flex-direction: column; gap: var(--space-3); }
+#search-results:not(:empty) { margin-top: var(--space-3); }
+.search-line { margin: 0; overflow-wrap: anywhere; }
+.search-card .note { margin: var(--space-1) 0 0; }
+.search-card td .pill { white-space: nowrap; }
+.search-card tr:has(+ .remark-row) td { border-bottom: 0; }
+.remark-row td { padding-top: 0; }
+.remark-row summary { font-size: var(--text-xs); padding: 0; }
+/* kept in view and wrapped to the window when the row table scrolls sideways on phones */
+.remark-row details { margin: 0; position: sticky; left: var(--space-2); max-width: calc(100vw - 88px); }
+.remark { display: block; overflow-wrap: anywhere; color: var(--muted); }
+.remark-row .remark { margin-left: var(--space-3); font-size: var(--text-sm); }
+
 /* ---------- narrow windows: one column ---------- */
 @media (max-width: 640px) {
   main { padding-top: var(--space-5); }
