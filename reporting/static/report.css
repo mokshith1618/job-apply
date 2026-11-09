@@ -179,6 +179,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-wrap { overflow-x: auto; }
 footer { margin-top: var(--space-7); }
 
+/* ---------- 0. search ---------- */
+#search { margin: 0 0 var(--space-4); }
+#search-box { width: 100%; font: inherit; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--radius-pill); padding: var(--space-2) var(--space-4); }
+#search-box:focus { outline: 2px solid var(--fill); outline-offset: 1px; }
+#search-results { display: flex; flex-direction: column; gap: var(--space-3); }
+#search-results:not(:empty) { margin-top: var(--space-3); }
+.search-line { margin: 0; overflow-wrap: anywhere; }
+.search-card .note { margin: var(--space-1) 0 0; }
+.search-card td .pill { white-space: nowrap; }
+
 /* ---------- narrow windows: one column ---------- */
 @media (max-width: 640px) {
   main { padding-top: var(--space-5); }

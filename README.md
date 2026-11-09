@@ -198,8 +198,11 @@ that opens in your browser: three summary sentences, this week, what needs your 
 applications per week, where your applications went (a Sankey diagram: responded, rejected
 or no reply yet, and the responses zoomed in by stage and outcome), applications per month,
 every response, your top 10 companies, applications with no
-reply, more details by source, job system and title, and a data check. One file with no
-scripts and no outside requests; light and dark follow your system.
+reply, more details by source, job system and title, and a data check. A search box at the
+top finds a company or a job title as you type (2+ characters, punctuation and Inc/LLC
+ignored, as in `find.py`) and shows its counts and rows; Esc clears it. One file with no
+outside requests; the only script is the search box's, and the rest of the page works
+without it. Light and dark follow your system.
 
 | Option | Meaning |
 |---|---|

@@ -93,6 +93,11 @@
 <main>
 <header class="page-head"><h1>Job search report</h1><span class="date">{{ title_date }}</span></header>
 
+<section id="search" hidden><h2 class="visually-hidden">Search</h2>
+<input type="search" id="search-box" placeholder="Search company or title" aria-label="Search company or title" autocomplete="off" spellcheck="false">
+<div id="search-results" aria-live="polite"></div>
+</section>
+
 <section id="highlights"><h2 class="visually-hidden">Highlights</h2>
 {% if highlights %}
 <ul class="highlights">
@@ -255,5 +260,10 @@
 
 <footer>Generated {{ stamp }} from {{ source_name }} · {{ row_count }}</footer>
 </main>
+{#- The search box's rows (escaped JSON, see render.script_json) and its script; without it the box stays hidden. #}
+<script type="application/json" id="search-data">{{ search_json }}</script>
+<script>
+{{ search_js }}
+</script>
 </body>
 </html>

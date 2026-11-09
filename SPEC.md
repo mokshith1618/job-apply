@@ -672,7 +672,34 @@ Weeks run Monday to Sunday; "last week" is the previous full week.
 
 Top of the page fits on one screen without scrolling: sections 1-5 (on a desktop window).
 
-**1. Highlights** (the opening of the page, below the date line, no visible heading)
+**0. Search** (a search box under the date line, no visible heading)
+Filters as I type, once the typed text is at least 2 characters after normalization. Matching
+ignores case, punctuation and trailing company suffixes: the same normalization as `find.py`
+(`tracker.search_key`; Python works out each row's keys, the script normalizes only the typed
+text). Esc empties the box; an empty box shows no results. It matches Company and Position.
+- **Company match** (rows grouped by company key): a card `{Company} · {n} applications ·
+  {r} responses · {x} rejected · {k} no reply`, then `Last applied {date}` (`unknown` when no
+  row has a Date), then a collapsed list of its rows: Position · Applied · Outcome (pill) ·
+  Stage (pill) · link (domain).
+- **Title match** (rows whose Position contains the text): one card `"{text}" in title ·
+  {n} applications · {r} responses · {x} rejected`, then `Top companies: A 4 · B 3 · C 2` (up to
+  3), then a collapsed list: Company · Position · Applied · Outcome · Stage.
+- Both match: company cards first. Several companies: one card each, at most 5 (most
+  applications first, ties: most recent application, as in Top 10), then `+N more`. No match:
+  `No applications match "{text}".`
+- Counts only, no percentages. Responses = Stage set; rejected = Outcome Rejected; no reply =
+  no Stage and not Rejected (as `No reply yet` in section 7). Company name as written on its
+  newest row. Rows newest applied first, no Date last; dates `10/27/2026`. Outcome pill: the
+  Outcome (blank = Applied) colored as in section 9; Stage pill (green) only when set.
+- Data: one JSON array of rows with only what the search needs (company, company key,
+  position, position key, applied, outcome, outcome color, stage, link domain, full link), in a
+  `<script type="application/json">` block with `<`, `>`, `&`, U+2028 and U+2029 escaped, so
+  tracker text can't end the block. A small inline script (`reporting/static/search.js`)
+  filters and draws the cards with the page's CSS classes and pills, using only
+  `textContent`, never `innerHTML`. Without JavaScript the search box stays hidden and the
+  rest of the page works.
+
+**1. Highlights** (below the search box, no visible heading)
 A row of up to 3 chips that only say what the cards below don't; a chip with nothing to say is
 left out:
 - `{n} rejection(s) today` (muted red): rows with Outcome Rejected and Last Updated = today.
@@ -789,8 +816,9 @@ Footer: `Generated {date time} from {file name} · {n} rows`.
 
 ### Look and feel
 
-- One HTML file, inline CSS, charts as inline SVG. **No JavaScript and no external files,
-  fonts or requests.** Collapsible parts with `<details>`.
+- One HTML file, inline CSS, charts as inline SVG. **No external files, fonts or requests.**
+  The only JavaScript is the search box's small inline script (section 0): no libraries, no
+  requests; everything else works without it. Collapsible parts with `<details>`.
 - Calm: large numbers, short labels, generous spacing.
 - System font, max width about 960px, generous spacing, one column on narrow windows.
 - Light and dark mode follow the system (`prefers-color-scheme`), colors as CSS variables.
@@ -815,6 +843,7 @@ imported instead of it.
 | `reporting/render.py` | fills the page template: values and chart geometry (the Sankey layout included), no markup; embeds the CSS in a `<style>` block so the page stays one file |
 | `reporting/templates/report.html.j2` | the page as a Jinja2 template, autoescape on (every tracker text escaped) |
 | `reporting/static/report.css` | all CSS; colors, spacing, font sizes and radii as variables at the top |
+| `reporting/static/search.js` | the search box: normalizes the typed text, filters the embedded rows, draws the cards |
 | `report.yaml` | settings |
 
 ### Done when
@@ -828,6 +857,10 @@ imported instead of it.
 - Render test: the HTML has every section heading in order, escapes `<script>` from a
   tracker cell, and contains no `<script src`, `<link`, `@import` or `http` request other than
   job links in tables.
+- Search tests: the embedded JSON has the right rows and fields and is escaped (a company
+  named `</script><b>x` stays text); the script's normalization gives the same keys as
+  `tracker.search_key` (run with node); the script makes no requests. Checked in Chrome on a
+  page made from the fake tracker: a company, a title, both, and nothing, desktop and narrow.
 - `report.py` never opens the tracker for writing (test: file modified time unchanged).
 - `pytest` and `ruff check .` pass.
 - One real run on my tracker; I check the page against the spreadsheet.

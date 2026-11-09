@@ -1,11 +1,16 @@
 """Milestone 9: report.py, a read-only page of the tracker, on the fake tracker and a fake worksheet."""
 import hashlib
+import json
 import re
+import shutil
+import subprocess
 from datetime import date, datetime
 
 import pytest
 from openpyxl import load_workbook
 
+import tracker
+from conftest import ROOT
 from fake_sheet import HEADER, FakeWorksheet
 from fake_tracker import SHUFFLED, make_tracker
 from reporting import derive, load, metrics, render
@@ -595,9 +600,9 @@ def test_top_companies_rejected_with_no_response():
 
 # ---------- render ----------
 
-SECTIONS = ["highlights", "today", "this-week", "totals", "attention", "weekly", "flow", "monthly", "responses", "top",
+SECTIONS = ["search", "highlights", "today", "this-week", "totals", "attention", "weekly", "flow", "monthly", "responses", "top",
             "no-reply", "details", "data-check"]
-HEADINGS = ["Highlights", "Today", "This week", "Totals", "Needs your attention", "Weekly",
+HEADINGS = ["Search", "Highlights", "Today", "This week", "Totals", "Needs your attention", "Weekly",
             "Where your applications went", "Monthly", "Your responses (", "Top 10 companies, with outcomes", "No reply after 30 days", "More details",
             "Data check ("]
 GENERATED = datetime(2026, 10, 28, 9, 5)
@@ -611,6 +616,15 @@ def section(html, name):
     return re.search(rf'<section id="{name}".*?</section>', html, re.S).group(0)
 
 
+SEARCH_SCRIPTS = re.compile(r'<script type="application/json" id="search-data">.*?</script>\s*<script>.*?</script>', re.S)
+
+
+def without_search_scripts(html):
+    """The page minus the search box's two script blocks (checked on their own in the search tests)."""
+    assert len(SEARCH_SCRIPTS.findall(html)) == 1
+    return SEARCH_SCRIPTS.sub("", html)
+
+
 def test_sections_in_order():
     html = page(ATTENTION_ROWS + WEEK_ROWS)
     assert re.findall(r'<section id="([^"]+)"', html) == SECTIONS
@@ -618,7 +632,7 @@ def test_sections_in_order():
     assert len(headings) == len(HEADINGS)
     for heading, start in zip(headings, HEADINGS):
         assert heading.startswith(start), (heading, start)
-    assert "Your responses (11)" in headings[8]
+    assert "Your responses (11)" in headings[9]
 
 
 def test_sections_present_with_no_rows():
@@ -632,7 +646,7 @@ def test_tracker_text_is_escaped():
     bad = "<script>alert(1)</script>"
     html = page([F(company=bad, position="A & B", stage="Interview", outcome="In progress", remarks="<b>x</b>",
                    posted=f"Posted today-{bad}")] * 5)
-    assert "<script" not in html
+    assert "<script" not in without_search_scripts(html)
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in section(html, "responses")  # card
     assert "<title>&lt;script&gt;alert(1)&lt;/script&gt;: 5 applications" in section(html, "top")  # SVG title
     assert "&lt;script&gt;alert(1)&lt;/script&gt;: Interview to do" in section(html, "attention")  # chip
@@ -640,7 +654,8 @@ def test_tracker_text_is_escaped():
 
 
 def test_no_external_requests():
-    html = page(ATTENTION_ROWS + WEEK_ROWS + [F(company="Bad", url="javascript:alert(1)", stage="Interview")])
+    html = without_search_scripts(page(ATTENTION_ROWS + WEEK_ROWS + [F(company="Bad", url="javascript:alert(1)",
+                                                                       stage="Interview")]))
     for banned in ("<script", "<link", "@import", "url(", "javascript:", "<iframe", "<img", "src="):
         assert banned not in html.lower(), banned
     links = re.findall(r'<a href="([^"]*)"[^>]*>', html)
@@ -867,7 +882,7 @@ def test_flow_labels_wrap_on_phones():
 
 def test_flow_tracker_text_is_escaped():
     html = page([F(stage="<script>alert(1)</script>", outcome="In progress"), F()])
-    assert "<script" not in html
+    assert "<script" not in without_search_scripts(html)
     chart = sankeys(html)["wide"]
     assert "&lt;script&gt;alert(1)&lt;/script&gt; · 1" in chart
     assert "<title>Responded -&gt; &lt;script&gt;alert(1)&lt;/script&gt;: 1</title>" in chart
@@ -1046,7 +1061,7 @@ def test_report_end_to_end(tracker_file, report_env):
         "zoomed in: 5 responses",
     ]:
         assert text in html, text
-    assert "+1 more" not in html and "<script" not in html and "Updates today" not in html
+    assert "+1 more" not in html and "<script" not in without_search_scripts(html) and "Updates today" not in html
     assert '<a href="https://example.com/jobs/4" target="_blank" rel="noopener noreferrer">example.com</a>' in html
 
 
@@ -1101,3 +1116,84 @@ def test_report_out_must_be_html(tracker_file, report_env, capsys):
     assert ".html" in capsys.readouterr().out
     assert _fingerprint(tracker_file) == before
 
+
+
+# ---------- 0. search ----------
+
+SEARCH_FIELDS = {"company", "company_key", "position", "position_key", "applied", "outcome", "outcome_cls", "stage",
+                 "domain", "href"}
+
+
+def search_block(html):
+    return re.search(r'<script type="application/json" id="search-data">(.*?)</script>', html, re.S).group(1)
+
+
+def search_json(html):
+    return json.loads(search_block(html))
+
+
+def test_search_data_rows_and_fields():
+    rows = [F(row=2, company="Acme, Inc.", position="Data Engineer", applied=d(10, 1), stage="Interview",
+              outcome="In progress"),
+            F(row=3, company="Globex", position="SRE", applied=None, url="javascript:alert(1)"),
+            F(row=4, company="ACME", position="Backend Engineer", applied=d(10, 20), outcome="Rejected"),
+            F(row=5, company="Initech LLC", position="S&P Analyst", applied=d(10, 20), outcome="",
+              url="https://www.boards.greenhouse.io/initech/jobs/5")]
+    data = search_json(page(rows))
+    assert data["suffixes"] == sorted(tracker.COMPANY_SUFFIXES)
+    assert all(set(r) == SEARCH_FIELDS for r in data["rows"])
+    # newest applied first; same day: highest row (the last added) first; no Date last
+    assert [r["company"] for r in data["rows"]] == ["Initech LLC", "ACME", "Acme, Inc.", "Globex"]
+    initech, acme_upper, acme, globex = data["rows"]
+    assert initech == {"company": "Initech LLC", "company_key": "initech", "position": "S&P Analyst",
+                       "position_key": "s p analyst", "applied": "10/20/2026", "outcome": "Applied",
+                       "outcome_cls": "waiting", "stage": "", "domain": "boards.greenhouse.io",
+                       "href": "https://www.boards.greenhouse.io/initech/jobs/5"}
+    assert acme["company_key"] == acme_upper["company_key"] == "acme"
+    assert (acme["outcome"], acme["outcome_cls"], acme["stage"]) == ("In progress", "progress", "Interview")
+    assert acme_upper["outcome_cls"] == "rejected"
+    assert (globex["applied"], globex["domain"], globex["href"]) == ("", "", "")
+
+
+def test_search_data_is_escaped():
+    bad, pos = "</script><b>x", "A & B <i> "
+    html = page([F(company=bad, position=pos, stage="Interview", outcome="In progress")])
+    block = search_block(html)
+    assert not re.search(r"[<>&  ]", block)
+    assert "</script><b>" not in html and "<b>x" not in html and "<i>" not in html
+    assert html.count("</script>") == 2  # the data block and the search script, nothing from the tracker
+    row = json.loads(block)["rows"][0]
+    assert (row["company"], row["position"]) == (bad, pos)
+
+
+def test_search_box_hidden_until_the_script_runs():
+    html = page([F()])
+    assert '<section id="search" hidden>' in html
+    assert html.index('id="search-data"') > html.index("</main>")  # after the page, so the page renders first
+
+
+def test_search_script_is_local():
+    html = page([F()])
+    script = re.search(r'</script>\s*<script>(.*?)</script>', html, re.S).group(1)
+    assert script.strip() == (ROOT / "reporting" / "static" / "search.js").read_text(encoding="utf-8").strip()
+    for banned in ("fetch", "XMLHttpRequest", "import", "src", "innerHTML", "outerHTML", "insertAdjacentHTML",
+                   "eval", "Function(", "document.write", "</script", "<!--", "localStorage"):
+        assert banned not in script, banned
+    assert not re.search(r"<script[^>]*\ssrc=", html)
+
+
+NORMALIZE_CASES = ["Acme, Inc.", "S&P Global", "Inc", "Nestlé S.A.", "  Foo--Bar  LLC ", "ÉCOLE", "Straße",
+                   "data_eng", "Acme Corp.", "co", "Ünïcode Co. Ltd", "Σίσυφος", "AT&T", "", "  ", "3M Co",
+                   "Data Engineer II (Remote)", "C++ / C# developer"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_search_normalization_matches_find():
+    script = ROOT / "reporting" / "static" / "search.js"
+    code = ("const {normalize} = require(process.argv[1]); const cases = JSON.parse(process.argv[2]);"
+            "const suffixes = JSON.parse(process.argv[3]);"
+            "process.stdout.write(JSON.stringify(cases.map(c => normalize(c, suffixes))));")
+    out = subprocess.run(["node", "-e", code, str(script), json.dumps(NORMALIZE_CASES),
+                          json.dumps(sorted(tracker.COMPANY_SUFFIXES))],
+                         capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    assert json.loads(out) == [tracker.search_key(c) for c in NORMALIZE_CASES]

@@ -2,11 +2,13 @@
 
 render.py works out what the page shows (values and chart geometry); templates/report.html.j2 draws
 it, with autoescape on so every text from the tracker is escaped, and static/report.css styles it.
-The CSS is embedded in a <style> block: no scripts, no external files, fonts or requests. Job links
-are only made from http(s) URLs and open in a new tab, shown as the domain.
+The CSS is embedded in a <style> block; the only script is the search box's (static/search.js,
+inline), with its rows as escaped JSON. No external files, fonts or requests. Job links are only
+made from http(s) URLs and open in a new tab, shown as the domain.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -15,6 +17,7 @@ from urllib.parse import urlsplit
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from markupsafe import Markup
 
+import tracker
 from reporting import metrics
 from reporting.derive import AWAITING, IN_PROGRESS, REJECTED, REJECTED_AFTER, Facts
 from reporting.load import Settings
@@ -398,6 +401,34 @@ def data_check_tables(issues) -> list[dict]:
             for name, fs in issues]
 
 
+# ---------- 0. search ----------
+
+# < > & and the two JS line separators (U+2028, U+2029) as JSON escapes, e.g. "<" -> "\u003c"
+JSON_ESCAPES = {c: "\\u%04x" % ord(c) for c in "<>&" + chr(0x2028) + chr(0x2029)}
+
+
+def script_json(value) -> str:
+    """JSON safe inside a <script> block: no tracker text can close it or start a comment."""
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    for char, escaped in JSON_ESCAPES.items():
+        text = text.replace(char, escaped)
+    return text
+
+
+def search_data(rows: list[Facts], settings: Settings) -> str:
+    """The rows the search box needs, newest applied first (same day: highest row, the last added;
+    no Date last). Keys come from tracker.search_key (find.py's normalization); the suffix list is
+    for the script, which normalizes only the typed text."""
+    def row(f: Facts) -> dict:
+        lk = link(f.job.url)
+        return {"company": f.job.company, "company_key": f.company_key, "position": f.job.position,
+                "position_key": tracker.search_key(f.job.position), "applied": day(f.job.applied),
+                "outcome": f.job.outcome or "Applied", "outcome_cls": outcome_class(f, settings),
+                "stage": f.job.stage, "domain": lk.domain if lk else "", "href": lk.href if lk else ""}
+    newest = sorted(rows, key=lambda f: (f.job.applied is None, -(f.job.applied or date.min).toordinal(), -f.job.row))
+    return script_json({"suffixes": sorted(tracker.COMPANY_SUFFIXES), "rows": [row(f) for f in newest]})
+
+
 def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, source_name: str,
          generated: datetime) -> str:
     weeks = metrics.weekly(rows, settings, today)
@@ -428,4 +459,6 @@ def page(rows: list[Facts], settings: Settings, today: date, *, excel: bool, sou
         no_reply_months=no_reply_months(quiet_months),
         details=details_tables(metrics.details(rows, settings)),
         issue_count=sum(len(fs) for _, fs in issues), issues=data_check_tables(issues),
-        stamp=stamp, source_name=source_name, row_count=metrics.plural(len(rows), "row"))
+        stamp=stamp, source_name=source_name, row_count=metrics.plural(len(rows), "row"),
+        search_json=Markup(search_data(rows, settings)),
+        search_js=Markup((HERE / "static" / "search.js").read_text(encoding="utf-8")))
