@@ -325,6 +325,25 @@ Every row is written to both: the Sheet first, then the local Excel file.
 - Before each write, save the Sheet's values to `backups/sheet-YYYYMMDD-HHMMSS.csv`.
 - If the Sheet can't be reached, keep the row in `pending_sheet.json` and write it next run.
 
+### Pulling Sheet changes to Excel
+
+`python pull_sheet.py` reads every row from the Google Sheet, compares with the local Excel
+tracker, and merges: edits to existing rows are applied (with interactive conflict resolution
+by default), and rows only in the Sheet are appended. A backup is made before any write.
+
+- Rows are matched by normalized URL first (same `normalize_url` as the duplicate check), then
+  by Company + Position (case-insensitive, whitespace-collapsed). A row that can't be matched
+  is treated as "new in the Sheet" and appended.
+- Only mutable fields are compared and updated: Outcome, Stage, Remarks, Last Updated,
+  Posted date/ Source. Identity fields (Company, Position, URL, Date) are used for matching,
+  not overwritten.
+- Conflict resolution (default): when both sides differ, a side-by-side view asks to accept
+  all Sheet values (`y`), keep all Excel values (`n`), or choose field by field (`f`).
+- `--yes` = accept all Sheet values without prompting (Sheet wins).
+- `--dry-run` = show what would change without writing.
+- Dates from the Sheet (strings like `6/20/2026`) are parsed into Python `date` objects before
+  writing to Excel, so they get the `M/d/yyyy` number format.
+
 ## Files
 
 | File | Purpose |
@@ -335,6 +354,7 @@ Every row is written to both: the Sheet first, then the local Excel file.
 | `job_facts.py` | the job facts card (sentence splitting, keyword matching, posted age) |
 | `tracker.py` | duplicate check, search, row writing and Outcome / Stage updates (Excel) |
 | `sheet_tracker.py` | the same for the Google Sheet |
+| `pull_sheet.py` | pull Sheet changes into the local Excel tracker |
 | `pending_rows.json`, `pending_sheet.json` | new rows waiting for Excel / the Sheet |
 | `pending_updates.json`, `pending_sheet_updates.json` | Outcome / Stage updates waiting for Excel / the Sheet |
 | `config.yaml` | Sheet ID, tab, key path, local tracker path |

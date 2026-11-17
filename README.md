@@ -187,6 +187,24 @@ its date.
 The confirm defaults to yes: Enter or `y` writes, `n` writes nothing. Writes go to the Google
 Sheet, then the Excel file, with a backup first, like `apply.py`.
 
+## Pulling Sheet changes to Excel (`pull_sheet.py`)
+
+```
+python pull_sheet.py [--tracker PATH] [--config PATH] [--dry-run] [--yes]
+```
+
+Reads the Google Sheet and merges any changes into the local Excel tracker.  Rows are matched
+by URL first, then by Company + Position.  Edits to existing rows (Outcome, Stage, Remarks,
+Last Updated, Posted date/ Source) are shown side-by-side, and you pick which version to keep.
+Rows that exist only in the Sheet are appended.  A backup is made before any write.
+
+| Option | Meaning |
+|---|---|
+| `--dry-run` | show what would change without writing |
+| `--yes` | accept all Sheet values without prompting |
+| `--tracker` | local Excel file (default: `local_tracker` in `config.yaml`) |
+| `--config` | config.yaml path |
+
 ## Report page (`report.py`)
 
 ```
@@ -274,6 +292,7 @@ page changed), it says so and you fill the form by hand. The tracker step still 
 | `matching.yaml` | keyword lists for the card |
 | `tracker.py` | Excel tracker: duplicate check, row writing, backups, pending rows |
 | `sheet_tracker.py` | the same for the Google Sheet |
+| `pull_sheet.py` | pull Sheet changes into the local Excel tracker |
 | `ats/` | one module per job system: reads company, position and posted date; `greenhouse.py` also fills the form |
 | `ats/form.py` | shared filling rules: profile and `answers.yaml` lookup, option matching |
 | `tests/` | pytest tests |
