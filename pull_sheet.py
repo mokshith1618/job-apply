@@ -351,7 +351,7 @@ def main(argv=None, input_fn=input, ws=None) -> int:
     except SheetMismatch as exc:
         print(f"Google Sheet layout problem: {exc}")
         return 1
-    except tracker.TrackerLocked as exc:
+    except tracker.TrackerLocked:
         print(f"{tracker_path.name} is open in Excel.  Close it and try again.")
         return 1
     return 0

@@ -1,14 +1,14 @@
 """Pull-sheet tests: Sheet → Excel merge against a fake worksheet (no network)."""
-import shutil
 from datetime import date, datetime
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 import pull_sheet
 import tracker
 from fake_sheet import HEADER, FakeWorksheet
-from fake_tracker import make_tracker
 
 TODAY = date(2026, 10, 20)
 
@@ -22,10 +22,6 @@ NEW_URL = "https://job-boards.greenhouse.io/newcorp/jobs/9999999"
 def _make_excel(tmp_path, rows=None):
     """Build a small tracker with specific rows instead of the 897-row fake."""
     path = tmp_path / "tracker.xlsx"
-    from openpyxl import Workbook
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    from openpyxl.worksheet.datavalidation import DataValidation
-
     wb = Workbook()
     ws = wb.active
     ws.title = "Sheet1"
